@@ -29,14 +29,14 @@ enum class BrushType : int {
     SnakeHook = 12,         // Pull geometry along the stroke.
     FaceGroups = 13,        // Paint SculptGroup ids.
     SmoothGroupBorder = 14, // Smooth only SculptGroup borders.
-    Density = 15,           // (later phase)
+    Density = 15,           // Paints where to remesh; the host remeshes on release (Alt: reduce).
     Revert = 16,            // Toward the Surface Snapshot.
-    Clip = 17,              // (later phase)
-    Cutter = 18,            // (later phase)
-    Slice = 19,             // (later phase)
-    Cloth = 20,             // (later phase)
-    Pose = 21,              // (later phase)
-    CurveTube = 22,         // (later phase)
+    Clip = 17,              // Screen-shape flatten (host gesture).
+    Cutter = 18,            // Screen-shape cut with caps (host gesture).
+    Slice = 19,             // Screen-line split into two parts (host gesture).
+    Cloth = 20,             // Cloth simulation under the brush (host gesture).
+    Pose = 21,              // Rotate/twist/scale around a guide (host gesture).
+    CurveTube = 22,         // Live tube along a curve (host gesture).
     Displace = 23,          // (later phase)
     MaskPaint = 24,         // Mask tool (not shown in the brush palette).
     Count

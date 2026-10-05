@@ -270,6 +270,12 @@ bool ReverseSubdivision() {
     return RunObjectCommand([](SculptMeshObject& o, MSTR& e) { return o.ReverseSubdivision(e); });
 }
 
+bool ApplyProfile() {
+    const bool ok = RunObjectCommand([](SculptMeshObject&, MSTR& e) { return SculptMode::Get().ApplyProfileToGroup(e); });
+    if (Interface* core = GetCOREInterface()) core->RedrawViews(core->GetTime());
+    return ok;
+}
+
 void CaptureSurface() {
     if (SculptMeshObject* object = Target()) object->CaptureSurface();
     SculptUI::Refresh();

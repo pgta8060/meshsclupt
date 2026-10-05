@@ -70,6 +70,31 @@ enum class Prop : int {
     DisplaceOffsetU,
     DisplaceOffsetV,
     DisplaceLive,
+    ClothIterations,        // Cloth brush.
+    ClothDamping,
+    ClothPlasticity,
+    ClothBendiness,
+    ClothFoldSize,
+    ClothFoldStrength,
+    ClothBendStiffness,
+    ClothSimulationArea,
+    ClothMoveStrength,
+    ClothGravity,
+    ClothPressure,
+    ClothPinBoundary,
+    PoseDeformation,        // sculpt::PoseDeformation
+    PoseRotationOrigins,    // 0 guides (A -> B), 1 SculptGroups
+    PoseOriginOffset,
+    PoseSmoothIterations,
+    PoseIkSegments,
+    PoseKeepAnchor,         // Later drags keep pivot A (else the next guide starts at B).
+    PoseConnectedOnly,
+    TubeSides,
+    TubeSpacing,            // Control point spacing in screen pixels.
+    TubeSurfaceOffset,      // Tube centre above the surface, in tube radii.
+    ProfileUse,
+    ProfileTarget,          // 0 Curve Tube, 1 active SculptGroup
+    ProfileMapping,         // 0 curve length, 1 local X, 2 local Y, 3 local Z
     Count
 };
 
@@ -143,6 +168,9 @@ public:
     // Displace rollout map (UTF-8 path, "" = none).
     const std::string& DisplaceMap() const { return displaceMap_; }
     void SetDisplaceMap(const std::string& path);
+    // Profile curve (sculpt::ProfileCurve::toText, "" = default).
+    const std::string& ProfileCurveText() const { return profileCurve_; }
+    void SetProfileCurveText(const std::string& text);
     // Alphas page category: "builtin", "favorites", or a library sub-folder name ("." = root).
     const std::string& AlphaCategory() const { return alphaCategory_; }
     void SetAlphaCategory(const std::string& category);
@@ -166,6 +194,7 @@ private:
     std::string alphaFolder_;
     std::string alphaCategory_;
     std::string displaceMap_;
+    std::string profileCurve_;
     std::vector<std::string> alphaFavorites_;
     std::vector<Listener*> listeners_;
     bool notifying_ = false;

@@ -10,6 +10,7 @@
 #include "AlphaLibrary.h"
 #include "DisplaceRollout.h"
 #include "MultiresRollout.h"
+#include "ProfileEditor.h"
 #include "SculptCommands.h"
 #include "SculptMeshObject.h"
 #include "SculptMode.h"
@@ -52,6 +53,21 @@ bool MaskShapeDirect() { return MaskDirect() && CurrentMaskTool() != MaskTool::P
 BrushType ContextBrush() { return MaskDirect() ? BrushType::MaskPaint : S().Brush(); }
 bool BrushContext() { return !MaskShapeDirect(); }
 bool AlphaActive() { return S().Bool(Prop::UseAlpha) && !S().AlphaId().empty(); }
+bool Is(BrushType b) { return BrushContext() && ContextBrush() == b; }
+bool CutBrush() { return Is(BrushType::Clip) || Is(BrushType::Cutter) || Is(BrushType::Slice); }
+// Brushes driven by their own gesture rather than spaced dabs.
+bool GestureBrush() { return CutBrush() || Is(BrushType::Pose) || Is(BrushType::Cloth) || Is(BrushType::CurveTube); }
+bool DabContext() { return BrushContext() && !GestureBrush(); }
+bool SizeContext() { return BrushContext() && !CutBrush(); }
+bool StrengthContext() {
+    return BrushContext() && !CutBrush() && !Is(BrushType::FaceGroups) && !Is(BrushType::Pose) && !Is(BrushType::CurveTube);
+}
+std::wstring SectionName() {
+    Interface* core = GetCOREInterface();
+    const ULONG handle = SculptMode::Get().SectionNode();
+    INode* node = handle && core ? core->GetINodeByHandle(handle) : nullptr;
+    return node ? std::wstring(L"Section: ") + node->GetName() : std::wstring(L"Section: circle (Tube Sides)");
+}
 bool ScatterContext() {
     const BrushType b = ContextBrush();
     return BrushContext() && b != BrushType::Move && b != BrushType::SnakeHook &&
@@ -724,13 +740,27 @@ private:
                    {L"Sub", [] { S().SetBrushValue(ContextBrush(), BrushProp::Subtract, 1.0f); },
                     [] { return S().BrushValue(ContextBrush(), BrushProp::Subtract) != 0.0f; }, {}}},
                   [] { return BrushContext() && sculpt::isSignedBrush(ContextBrush()); });
-        r.Slider(PropSlider(L"Brush Size", Prop::BrushSize, 1, 500.0f, true), BrushContext);
-        r.Slider(StrengthSlider(), [] { return BrushContext() && ContextBrush() != BrushType::FaceGroups; });
+        r.Note(
+            [] {
+                if (Is(BrushType::Clip))
+                    return std::wstring(L"Drag line \x2022 Alt curve \x2022 Ctrl rect \x2022 Shift circle \x2022 +Alt invert");
+                if (Is(BrushType::Cutter)) return std::wstring(L"Drag line \x2022 Ctrl rect \x2022 Shift circle \x2022 Alt side");
+                if (Is(BrushType::Slice)) return std::wstring(L"Drag a line through the mesh \x2022 Space pans");
+                if (Is(BrushType::Pose)) return std::wstring(L"Drag A \x2192 B, then drag to pose \x2022 RMB clears");
+                if (Is(BrushType::CurveTube)) return std::wstring(L"Drag to draw \x2022 RMB commits \x2022 Esc cancels");
+                if (Is(BrushType::Density)) return std::wstring(L"Remeshes when the stroke ends \x2022 Alt reduces");
+                return std::wstring();
+            },
+            [] {
+                return GestureBrush() || Is(BrushType::Density);
+            });
+        r.Slider(PropSlider(L"Brush Size", Prop::BrushSize, 1, 500.0f, true), SizeContext);
+        r.Slider(StrengthSlider(), StrengthContext);
         AddBrushCheck(r, L"Layer Mode", BrushProp::LayerMode,
                       [] { return BrushContext() && sculpt::brushInfo(ContextBrush()).supportsLayerMode; });
-        r.Slider(PropSlider(L"Stroke Spacing", Prop::StrokeSpacing, 2, 1.0f), BrushContext);
-        r.Slider(PropSlider(L"Alpha Mid", Prop::AlphaMid, 2), [] { return BrushContext() && AlphaActive(); });
-        r.Slider(PropSlider(L"Alpha Fade", Prop::AlphaFade, 2), [] { return BrushContext() && AlphaActive(); });
+        r.Slider(PropSlider(L"Stroke Spacing", Prop::StrokeSpacing, 2, 1.0f), DabContext);
+        r.Slider(PropSlider(L"Alpha Mid", Prop::AlphaMid, 2), [] { return DabContext() && AlphaActive(); });
+        r.Slider(PropSlider(L"Alpha Fade", Prop::AlphaFade, 2), [] { return DabContext() && AlphaActive(); });
         r.Slider(PropSlider(L"Border", Prop::ClayBorder, 2), [] { return BrushContext() && ContextBrush() == BrushType::Clay; });
         r.Slider(PropSlider(L"Polish Hardness", Prop::PolishHardness, 2),
                  [] { return BrushContext() && ContextBrush() == BrushType::Polish; });
@@ -743,11 +773,54 @@ private:
         r.Slider(PropSlider(L"Scatter Radius", Prop::ScatterRadius, 2), ScatterContext);
         r.Slider(PropSlider(L"Size Jitter", Prop::SizeJitter, 2), ScatterContext);
         r.Slider(PropSlider(L"Amount Jitter", Prop::AmountJitter, 2), ScatterContext);
-        AddPropCheck(r, L"Use Falloff", Prop::UseFalloff, BrushContext);
-        AddPropCheck(r, L"Follow Path", Prop::FollowPath, BrushContext);
-        AddPropCheck(r, L"Lazy Mouse", Prop::LazyMouse, BrushContext);
-        r.Slider(PropSlider(L"Lazy Amount", Prop::LazyAmount, 2), [] { return BrushContext() && S().Bool(Prop::LazyMouse); });
-        AddBrushCheck(r, L"Backface Cull", BrushProp::BackfaceCull, BrushContext);
+        // Cloth.
+        const auto cloth = [] { return Is(BrushType::Cloth); };
+        r.Slider(PropSlider(L"Cloth Iterations", Prop::ClothIterations, 0, 20.0f), cloth);
+        r.Slider(PropSlider(L"Cloth Damping", Prop::ClothDamping, 2), cloth);
+        r.Slider(PropSlider(L"Cloth Plasticity", Prop::ClothPlasticity, 2), cloth);
+        r.Slider(PropSlider(L"Cloth Bendiness", Prop::ClothBendiness, 2), cloth);
+        r.Slider(PropSlider(L"Fold Size", Prop::ClothFoldSize, 2), cloth);
+        r.Slider(PropSlider(L"Fold Strength", Prop::ClothFoldStrength, 2), cloth);
+        r.Slider(PropSlider(L"Bend Stiffness", Prop::ClothBendStiffness, 2), cloth);
+        r.Slider(PropSlider(L"Simulation Area", Prop::ClothSimulationArea, 2), cloth);
+        r.Slider(PropSlider(L"Move Strength", Prop::ClothMoveStrength, 2), cloth);
+        r.Slider(PropSlider(L"Gravity", Prop::ClothGravity, 2), cloth);
+        r.Slider(PropSlider(L"Pressure", Prop::ClothPressure, 2), cloth);
+        AddPropCheck(r, L"Pin Boundary", Prop::ClothPinBoundary, cloth);
+        // Pose.
+        const auto pose = [] { return Is(BrushType::Pose); };
+        r.Choice(L"Deformation", {L"Rotate", L"Twist", L"Scale"}, [] { return S().Int(Prop::PoseDeformation); },
+                 [](int i) { S().Set(Prop::PoseDeformation, static_cast<float>(i)); }, pose);
+        r.Choice(L"Rotation Origins", {L"Guide (A \x2192 B)", L"SculptGroups"}, [] { return S().Int(Prop::PoseRotationOrigins); },
+                 [](int i) {
+                     S().Set(Prop::PoseRotationOrigins, static_cast<float>(i));
+                     SculptMode::Get().ClearPoseGuide();
+                 },
+                 pose);
+        r.Slider(PropSlider(L"Pose Origin Offset", Prop::PoseOriginOffset, 2), pose);
+        r.Slider(PropSlider(L"Smooth Iterations", Prop::PoseSmoothIterations, 0, 10.0f), pose);
+        r.Slider(PropSlider(L"Pose IK Segments", Prop::PoseIkSegments, 0), pose);
+        AddPropCheck(r, L"Keep Anchor Point", Prop::PoseKeepAnchor, pose);
+        AddPropCheck(r, L"Connected Only", Prop::PoseConnectedOnly, pose);
+        r.Buttons({{L"Clear Guide", [] { SculptMode::Get().ClearPoseGuide(); }, {}, {}, {}}}, pose);
+        // Curve Tube.
+        const auto tube = [] { return Is(BrushType::CurveTube); };
+        r.Slider(PropSlider(L"Tube Sides", Prop::TubeSides, 0, 32.0f), [] { return Is(BrushType::CurveTube) && !SculptMode::Get().SectionNode(); });
+        r.Slider(PropSlider(L"Point Spacing", Prop::TubeSpacing, 0, 100.0f), tube);
+        r.Slider(PropSlider(L"Surface Offset", Prop::TubeSurfaceOffset, 2), tube);
+        r.Buttons({{L"Pick Section Shape", [] { SectionPicker::Toggle(); }, [] { return SectionPicker::Active(); }, {}, {}},
+                   {L"Clear", [] { SculptMode::Get().SetSectionNode(0); }, {}, [] { return SculptMode::Get().SectionNode() != 0; }, {}}},
+                  tube);
+        r.Note(SectionName, tube);
+        r.Buttons({{L"Commit Tube", [] { SculptMode::Get().CommitTube(); }, {}, [] { return SculptMode::Get().TubePending(); }, {}},
+                   {L"Cancel", [] { SculptMode::Get().CancelPending(); }, {}, [] { return SculptMode::Get().TubePending(); }, {}}},
+                  tube);
+
+        AddPropCheck(r, L"Use Falloff", Prop::UseFalloff, DabContext);
+        AddPropCheck(r, L"Follow Path", Prop::FollowPath, DabContext);
+        AddPropCheck(r, L"Lazy Mouse", Prop::LazyMouse, DabContext);
+        r.Slider(PropSlider(L"Lazy Amount", Prop::LazyAmount, 2), [] { return DabContext() && S().Bool(Prop::LazyMouse); });
+        AddBrushCheck(r, L"Backface Cull", BrushProp::BackfaceCull, [] { return StrengthContext() || Is(BrushType::Cloth); });
 
         r.Section(L"Material / Paint", false);
         AddPropCheck(r, L"Use Sculpt Material Preview", Prop::SculptMaterialPreview);
@@ -779,6 +852,20 @@ private:
         r.Slider(PropSlider(L"Radial Count", Prop::RadialCount, 0), [] { return S().Bool(Prop::RadialMirror); });
         r.Choice(L"Radial Axis", {L"X", L"Y", L"Z"}, [] { return S().Int(Prop::RadialAxis); },
                  [](int i) { S().Set(Prop::RadialAxis, static_cast<float>(i)); }, [] { return S().Bool(Prop::RadialMirror); });
+
+        r.Section(L"Profile", false);
+        AddPropCheck(r, L"Use Profile", Prop::ProfileUse);
+        r.Choice(L"Apply to", {L"Curve Tube", L"Active Sculpt Group"}, [] { return S().Int(Prop::ProfileTarget); },
+                 [](int i) {
+                     S().Set(Prop::ProfileTarget, static_cast<float>(i));
+                     S().Set(Prop::ProfileMapping, i == 0 ? 0.0f : 3.0f);  // Curve Length / Local Z.
+                 });
+        r.Choice(L"Mapping", {L"Curve Length", L"Local X", L"Local Y", L"Local Z"}, [] { return S().Int(Prop::ProfileMapping); },
+                 [](int i) { S().Set(Prop::ProfileMapping, static_cast<float>(i)); });
+        r.Custom(profileEditor_.Spec());
+        r.Buttons({{L"Reset Profile", [] { S().SetProfileCurveText(std::string()); }, {}, {}, {}},
+                   {L"Apply to Group", [] { SculptCommands::ApplyProfile(); }, {},
+                    [] { return S().Bool(Prop::ProfileUse) && S().Int(Prop::ProfileTarget) == 1; }, {}}});
 
         r.Section(L"Layers", true);
         r.Note(
@@ -848,6 +935,7 @@ private:
     }
 
     RowList rows_;
+    ProfileEditor profileEditor_;
     int scroll_ = 0;
 };
 

@@ -87,10 +87,40 @@ void SculptOverlay::ShowShape(const std::vector<IPoint2>& points, bool closed, c
     color_ = color;
 }
 
+void SculptOverlay::ShowSegments(const std::vector<IPoint2>& pairs, const Point3& color) {
+    kind_ = pairs.size() >= 2 ? Kind::Segments : Kind::None;
+    points_ = pairs;
+    color_ = color;
+}
+
+void SculptOverlay::SetWorld(std::vector<Point3> segments, std::vector<Point3> markers, const Point3& color) {
+    worldSegments_ = std::move(segments);
+    worldMarkers_ = std::move(markers);
+    worldColor_ = color;
+}
+
+void SculptOverlay::DisplayWorld(GraphicsWindow* gw) {
+    if (worldSegments_.empty() && worldMarkers_.empty()) return;
+    Matrix3 identity;
+    identity.IdentityMatrix();
+    gw->setTransform(identity);
+    gw->setColor(LINE_COLOR, worldColor_.x, worldColor_.y, worldColor_.z);
+    gw->startSegments();
+    for (std::size_t i = 0; i + 1 < worldSegments_.size(); i += 2) gw->segment(&worldSegments_[i], 1);
+    gw->endSegments();
+    const DWORD limits = gw->getRndLimits();
+    gw->setRndLimits(limits & ~GW_Z_BUFFER);  // Control points stay visible.
+    gw->setColor(LINE_COLOR, 1.0f, 1.0f, 1.0f);
+    for (Point3& p : worldMarkers_) gw->marker(&p, CIRCLE_MRKR);
+    gw->setRndLimits(limits);
+}
+
 void SculptOverlay::Display(TimeValue /*t*/, ViewExp* vpt, int /*flags*/) {
-    if (kind_ == Kind::None || !vpt || !vpt->IsAlive() || vpt->GetHWnd() != hwnd_) return;
+    if (!vpt || !vpt->IsAlive() || vpt->GetHWnd() != hwnd_) return;
     GraphicsWindow* gw = vpt->getGW();
     if (!gw) return;
+    DisplayWorld(gw);
+    if (kind_ == Kind::None) return;
 
     const IPoint2 reference = kind_ == Kind::Circle ? center_ : points_.front();
     Ray centerRay;
@@ -118,6 +148,15 @@ void SculptOverlay::Display(TimeValue /*t*/, ViewExp* vpt, int /*flags*/) {
                 segments.push_back(ring[i]);
                 segments.push_back(ring[(i + 1) % kCircleSegments]);
             }
+        }
+    } else if (kind_ == Kind::Segments) {
+        for (std::size_t i = 0; i + 1 < points_.size(); i += 2) {
+            Point3 a, b;
+            if (!toWorld(static_cast<float>(points_[i].x), static_cast<float>(points_[i].y), a) ||
+                !toWorld(static_cast<float>(points_[i + 1].x), static_cast<float>(points_[i + 1].y), b))
+                return;
+            segments.push_back(a);
+            segments.push_back(b);
         }
     } else {
         std::vector<Point3> world(points_.size());
@@ -181,6 +220,9 @@ void SculptMode::Stop() {
     IObjParam* ip = ip_;
     ip->DeleteMode(this);     // Calls ExitMode() if the mode is on the stack.
     if (active_) ExitMode();  // Defensive: never leave a registered callback behind.
+    tube_ = TubeState();
+    poseGuide_ = false;
+    overlay_.ClearWorld();
     object_ = nullptr;
     foreground_.SetObject(nullptr);
     ip_ = nullptr;
@@ -194,7 +236,12 @@ void SculptMode::ForgetObject(SculptMeshObject* object) {
     object_ = nullptr;
     foreground_.SetObject(nullptr);
     overlay_.Hide();
+    overlay_.ClearWorld();
     anchorValid_ = false;
+    tube_ = TubeState();
+    poseGuide_ = false;
+    cloth_.end();
+    activeGroup_ = -1;
 }
 
 void SculptMode::EnterMode() {
@@ -402,8 +449,13 @@ int SculptMode::proc(HWND hwnd, int msg, int point, int flags, IPoint2 m) {
             if (gesture_ != Gesture::None) Release(hwnd, m, flags);  // The button-up was missed.
             UpdateOverlay(hwnd, m, flags);
             break;
-        case MOUSE_PROPCLICK:  // Right-click while idle: Quick Menu.
-            if (gesture_ == Gesture::None) {
+        case MOUSE_PROPCLICK:  // Right-click while idle: Quick Menu (Pose and Curve Tube use it).
+            if (gesture_ == Gesture::None && tube_.active) {
+                CommitTube();
+            } else if (gesture_ == Gesture::None && poseGuide_ && SculptSettings::Get().Brush() == BrushType::Pose &&
+                       !SculptSettings::Get().Bool(Prop::MaskDirect)) {
+                ClearPoseGuide();
+            } else if (gesture_ == Gesture::None) {
                 POINT p = {m.x, m.y};
                 ClientToScreen(hwnd, &p);
                 SculptUI::ShowQuickMenu(p, false);
@@ -458,6 +510,12 @@ void SculptMode::Press(HWND hwnd, IPoint2 m, int flags, bool doubleClick) {
         return;
     }
 
+    {  // Remember the SculptGroup under the cursor (Profile "Active Sculpt Group").
+        sculpt::RayHit hit;
+        if (Raycast(vpt, mx, my, true, hit)) activeGroup_ = object_->Bridge()->Session().groupOfTriangle(hit.triangle);
+    }
+    if (!maskDirect && PressTool(hwnd, m, flags)) return;
+
     const BrushType brush = settings.Brush();
     if (ctrl && alt) {
         // Click: straight line from the previous stroke. Drag: unmask.
@@ -509,7 +567,7 @@ void SculptMode::Press(HWND hwnd, IPoint2 m, int flags, bool doubleClick) {
     BeginStroke(hwnd, m, strokeBrush, alt && type != BrushType::FaceGroups, false, false);
 }
 
-void SculptMode::Drag(HWND hwnd, IPoint2 m, int /*flags*/) {
+void SculptMode::Drag(HWND hwnd, IPoint2 m, int flags) {
     if (gesture_ == Gesture::None || hwnd != gestureHwnd_) return;
     if (!moved_ && FarApart(m, press_)) moved_ = true;
     ViewExp& vpt = ip_->GetViewExp(hwnd);
@@ -575,12 +633,13 @@ void SculptMode::Drag(HWND hwnd, IPoint2 m, int /*flags*/) {
             }
             break;
         default:
+            DragTool(hwnd, m, flags);
             break;
     }
     last_ = m;
 }
 
-void SculptMode::Release(HWND hwnd, IPoint2 m, int /*flags*/) {
+void SculptMode::Release(HWND hwnd, IPoint2 m, int flags) {
     const Gesture gesture = gesture_;
     if (gesture == Gesture::None) return;
     if (!object_ || !object_->Bridge()) {
@@ -636,6 +695,7 @@ void SculptMode::Release(HWND hwnd, IPoint2 m, int /*flags*/) {
                 ApplyEmptyMask(false, true);  // Ctrl+Alt click in empty space: clear visible mask.
             break;
         default:
+            ReleaseTool(hwnd, m, flags);
             break;
     }
     gesture_ = Gesture::None;
@@ -645,8 +705,9 @@ void SculptMode::Release(HWND hwnd, IPoint2 m, int /*flags*/) {
 
 void SculptMode::Cancel() {
     const Gesture gesture = gesture_;
-    gesture_ = Gesture::None;
     if (gesture == Gesture::None) return;
+    CancelTool();
+    gesture_ = Gesture::None;
     SculptSessionBridge* bridge = object_ ? object_->Bridge() : nullptr;
     if (bridge && bridge->Session().strokeActive()) {
         bridge->Session().cancelStroke();
@@ -864,6 +925,10 @@ void SculptMode::FinishStroke(const MCHAR* undoName) {
         object_->PutStrokeUndo(delta, undoName);
         theHold.Accept(undoName);
     }
+    if (strokeBrush_.type == BrushType::Density) {
+        FinishDensity();  // Remeshes the painted area (a topology change).
+        return;
+    }
     // The end of this stroke is the next Ctrl+Alt straight-line anchor.
     const BrushType type = strokeBrush_.type;
     if (haveLastDab_ && (IsLineBrush(type) || type == BrushType::MaskPaint)) {
@@ -1017,8 +1082,10 @@ void SculptMode::UpdateOverlay(HWND hwnd, IPoint2 m, int flags) {
     const MaskTool maskTool = static_cast<MaskTool>(settings.Int(Prop::MaskTool));
     const bool usesMask = maskDirect || (ctrl && !shift);
 
-    if ((ctrl && shift && alt) || (usesMask && maskTool != MaskTool::PaintMask)) {
-        overlay_.Hide();  // Visibility gesture or Rectangle/Lasso: no brush circle.
+    const BrushType brushType = settings.Brush();
+    const bool cutBrush = brushType == BrushType::Clip || brushType == BrushType::Cutter || brushType == BrushType::Slice;
+    if ((ctrl && shift && alt) || (usesMask && maskTool != MaskTool::PaintMask) || (!usesMask && cutBrush)) {
+        overlay_.Hide();  // Visibility gesture, Rectangle/Lasso or a cut tool: no brush circle.
     } else {
         Point3 color = kSculptColor;
         if (usesMask) {
@@ -1042,5 +1109,6 @@ void SculptMode::UpdateOverlay(HWND hwnd, IPoint2 m, int flags) {
             }
         }
     }
+    UpdateToolOverlay();  // Pose guide / live tube (the tube radius follows the brush size).
     Redraw(REDRAW_NORMAL);
 }

@@ -89,6 +89,19 @@ public:
     std::size_t applyDab(const BrushSettings& settings, const Dab& dab);
     // Locally blurs the mask under a dab (Paint Mask double-click / Ctrl-click).
     std::size_t applyMaskBlurDab(const Dab& dab, float strength);
+    // Moves vertices to explicit targets inside the current stroke (Clip, Pose,
+    // Cloth, deformers). Targets are blended by (1 - mask) unless the caller
+    // already weighted them (`useMask` false); hidden vertices stay. Returns
+    // the number of vertices moved.
+    std::size_t applyTargets(const std::vector<std::uint32_t>& vertices, const std::vector<Vec3>& targets,
+                             bool useMask = true);
+
+    // Density brush: dabs only paint a per-vertex weight (0..1); the host
+    // remeshes the painted region when the stroke ends.
+    const std::vector<float>& densityWeights() const { return densityWeight_; }
+    float densityRadius() const { return densityRadius_; }
+    bool hasDensityWeights() const { return densityPainted_; }
+    void clearDensityWeights();
     StrokeDelta endStroke();
     void cancelStroke();
 
@@ -159,6 +172,9 @@ private:
     std::vector<std::uint32_t> movedTris_;
     std::vector<Mat3> symmetry_{Mat3::identity()};
     std::vector<Vec3> reference_;
+    std::vector<float> densityWeight_;
+    float densityRadius_ = 0.0f;
+    bool densityPainted_ = false;
 
     std::vector<float> mask_;
     bool hasMask_ = false;

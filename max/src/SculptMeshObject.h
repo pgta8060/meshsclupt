@@ -133,6 +133,12 @@ public:
     // Auto Smooth (or faceted) from the settings; call after the settings changed.
     void RefreshSmoothing();
 
+    // --- Topology tools (Density, Cutter, Slice, Curve Tube) ----------------------------
+    // Runs `edit` on the current mesh as one undo step. The result is a plain
+    // mesh again: Multires levels and sculpt layers are dropped (layers are
+    // baked into the shape).
+    bool RunTopologyEdit(const std::function<bool(sculpt::PolyData&, MSTR&)>& edit, int undoName, MSTR& error);
+
     // --- Surface Snapshot (Revert brush) -------------------------------------------------
     void CaptureSurface();
     void ClearSurface();

@@ -999,6 +999,22 @@ bool SculptMeshObject::ReverseSubdivision(MSTR& error) {
         IDS_UNDO_REVERSE, error);
 }
 
+bool SculptMeshObject::RunTopologyEdit(const std::function<bool(sculpt::PolyData&, MSTR&)>& edit, int undoName,
+                                       MSTR& error) {
+    return RunStructural(
+        [this, &edit](MSTR& e) {
+            sculpt::PolyData poly;
+            if (!MeshToPoly(mm, attributes_, poly, &e)) return false;  // The displayed shape, layers included.
+            if (!edit(poly, e)) return false;
+            multires_.reset();
+            level_ = 0;
+            layers_ = sculpt::LayerStack();  // Before ReplaceMesh, so no offsets are added again.
+            ReplaceMesh(poly);
+            return true;
+        },
+        undoName, error);
+}
+
 // --- Surface Snapshot ---------------------------------------------------------------------
 
 void SculptMeshObject::CaptureSurface() {

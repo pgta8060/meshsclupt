@@ -43,8 +43,10 @@ TEST_CASE(settings_brush_values_are_per_brush) {
     CHECK(!s.MakeBrush(BrushType::Move).backfaceCull);  // Move defaults to no culling.
     s.SetBrush(BrushType::Count);                       // Not a palette brush: ignored.
     CHECK(s.Brush() == BrushType::Smooth);
-    s.SetBrush(BrushType::Cloth);                       // Not available yet: ignored.
+    s.SetBrush(BrushType::MaskPaint);                   // The mask tool is not a palette brush.
     CHECK(s.Brush() == BrushType::Smooth);
+    s.SetBrush(BrushType::Cloth);
+    CHECK(s.Brush() == BrushType::Cloth);
     s.ResetToDefaults();
 }
 

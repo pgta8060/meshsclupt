@@ -88,6 +88,28 @@ float IconHeight(sculpt::BrushType b, float u, float v) {
             const float rr = std::sqrt(r2);
             return 0.16f * std::exp(-(rr - 0.42f) * (rr - 0.42f) / 0.006f) * (0.4f + 0.6f * Smoothstep(-0.6f, 0.6f, u));
         }
+        case BrushType::Clip: return -0.9f * std::max(0.0f, u + 0.35f * v - 0.2f);  // A flat cut face.
+        case BrushType::Cutter: return -0.25f * (1.0f - Smoothstep(0.26f, 0.3f, std::sqrt((u - 0.1f) * (u - 0.1f) + (v + 0.05f) * (v + 0.05f))));
+        case BrushType::Slice: return -0.2f * std::max(0.0f, 1.0f - std::fabs(d) / 0.05f);
+        case BrushType::Cloth: return 0.05f * std::sin(13.0f * (0.8f * u + 0.3f * v) + 2.0f * v * v) * (1.0f - Smoothstep(0.3f, 0.85f, std::sqrt(r2)));
+        case BrushType::Pose:
+        case BrushType::CurveTube: {
+            // A limb bent at an elbow (Pose) or an S-shaped tube (Curve Tube).
+            float h = 0.0f;
+            for (int i = 0; i <= 12; ++i) {
+                const float t = static_cast<float>(i) / 12.0f;
+                float cx, cy;
+                if (b == BrushType::Pose) {
+                    cx = t < 0.5f ? -0.55f + 1.1f * t : 0.0f + 0.7f * (t - 0.5f);
+                    cy = t < 0.5f ? 0.35f : 0.35f - 1.3f * (t - 0.5f);
+                } else {
+                    cx = -0.55f + 1.1f * t;
+                    cy = 0.3f * std::sin(6.28318f * t);
+                }
+                h = std::max(h, 0.2f * Gauss(u, v, cx, cy, b == BrushType::Pose ? 0.018f : 0.01f));
+            }
+            return h;
+        }
         default: return 0.0f;
     }
 }
@@ -102,6 +124,25 @@ void IconTint(sculpt::BrushType b, float u, float v, float rgb[3]) {
         const float t = Smoothstep(-0.12f, 0.12f, u + 0.2f * v);
         const float a[3] = {0.85f, 0.6f, 0.45f}, c[3] = {0.5f, 0.65f, 0.85f};
         for (int k = 0; k < 3; ++k) rgb[k] = a[k] + (c[k] - a[k]) * t;
+    } else if (b == BrushType::Density) {
+        // A triangle wireframe that gets finer toward the centre.
+        const float rr = std::sqrt(u * u + v * v);
+        const float cells = rr < 0.4f ? 9.0f : 4.5f;
+        auto line = [cells](float x) {
+            const float f = x * cells - std::floor(x * cells);
+            return 1.0f - Smoothstep(0.0f, 0.12f, std::min(f, 1.0f - f));
+        };
+        const float w = std::max(line(u), std::max(line(v), line(0.5f * u + 0.866f * v)));
+        for (int k = 0; k < 3; ++k) rgb[k] = 0.74f - 0.38f * w;
+    } else if (b == BrushType::Cutter) {
+        const float hole = 1.0f - Smoothstep(0.24f, 0.28f, std::sqrt((u - 0.1f) * (u - 0.1f) + (v + 0.05f) * (v + 0.05f)));
+        for (int k = 0; k < 3; ++k) rgb[k] = 0.72f - 0.55f * hole;
+    } else if (b == BrushType::Slice) {
+        const float gap = 1.0f - Smoothstep(0.015f, 0.035f, std::fabs((u + v) * 0.70710678f));
+        const float side = (u + v) > 0.0f ? 1.0f : 0.0f;
+        rgb[0] = 0.74f - 0.5f * gap - 0.1f * side;
+        rgb[1] = 0.70f - 0.5f * gap;
+        rgb[2] = 0.66f - 0.5f * gap + 0.12f * side;
     } else if (b == BrushType::MaskPaint) {
         const float m = 1.0f - Smoothstep(-0.05f, 0.05f, u);
         for (int k = 0; k < 3; ++k) rgb[k] = 0.72f - 0.5f * m;
@@ -725,6 +766,14 @@ void RowList::Text(const std::wstring& label, std::function<std::wstring()> get,
     Add(std::move(row));
 }
 
+void RowList::Custom(CustomSpec spec, Visible visible) {
+    Row row;
+    row.kind = Kind::Custom;
+    row.custom = std::move(spec);
+    row.visible = std::move(visible);
+    Add(std::move(row));
+}
+
 int RowList::ListItemHeight() const { return Px(20); }
 
 RECT RowList::TextBox(const RECT& r) {
@@ -732,8 +781,9 @@ RECT RowList::TextBox(const RECT& r) {
     return RECT{split, r.top + Px(2), r.right - Px(4), r.bottom - Px(2)};
 }
 
-int RowList::RowHeight(const Row& row) const {
+int RowList::RowHeight(const Row& row, int width) const {
     switch (row.kind) {
+        case Kind::Custom: return row.custom.height ? row.custom.height(width) : Px(22);
         case Kind::Section: return Px(22);
         case Kind::Buttons: return Px(25);
         case Kind::Colors: return Px(28);
@@ -757,7 +807,7 @@ std::vector<RowList::Placed> RowList::Layout(int width) const {
         } else if (!out.empty()) {
             y += Px(4);  // Gap between sections.
         }
-        const int h = RowHeight(row);
+        const int h = RowHeight(row, width);
         out.push_back({static_cast<int>(i), RECT{0, y, width, y + h}});
         y += h;
     }
@@ -944,6 +994,9 @@ void RowList::Paint(HDC dc, const RECT& area, int scroll) const {
                 }
                 break;
             }
+            case Kind::Custom:
+                if (row.custom.paint) row.custom.paint(dc, r);
+                break;
             case Kind::Text: {
                 const RECT box = TextBox(r);
                 RECT label = {r.left + Px(8), r.top, box.left - Px(4), r.bottom};
@@ -981,7 +1034,7 @@ void RowList::SetSliderFromX(const Row& row, const RECT& rect, int x) {
         row.slider.set(value);
 }
 
-bool RowList::MouseDown(HWND host, int x, int y, bool /*doubleClick*/, int scroll) {
+bool RowList::MouseDown(HWND host, int x, int y, bool doubleClick, int scroll) {
     if (edit_) FinishEdit(true);
     RECT r;
     const int index = HitRow(x, y, scroll, &r);
@@ -1044,6 +1097,11 @@ bool RowList::MouseDown(HWND host, int x, int y, bool /*doubleClick*/, int scrol
             BeginEdit(host, index, box);
             return true;
         }
+        case Kind::Custom:
+            if (!row.custom.mouseDown || !row.custom.mouseDown(host, r, x, y, doubleClick)) return false;
+            customDrag_ = index;
+            dragRect_ = r;
+            return true;
         case Kind::Colors: {
             for (int which = 0; which < 3; ++which) {
                 const RECT c = ColorRect(r, which);
@@ -1066,6 +1124,10 @@ bool RowList::MouseDown(HWND host, int x, int y, bool /*doubleClick*/, int scrol
 }
 
 bool RowList::MouseMove(int x, int y, bool captured, int scroll) {
+    if (customDrag_ >= 0 && captured) {
+        const CustomSpec& c = rows_[static_cast<std::size_t>(customDrag_)].custom;
+        return c.mouseDrag && c.mouseDrag(dragRect_, x, y);
+    }
     if (drag_ >= 0 && captured) {
         SetSliderFromX(rows_[static_cast<std::size_t>(drag_)], dragRect_, x);
         return true;
@@ -1088,6 +1150,13 @@ bool RowList::MouseMove(int x, int y, bool captured, int scroll) {
 }
 
 bool RowList::MouseUp(int x, int y, int scroll) {
+    if (customDrag_ >= 0) {
+        const int row = customDrag_;
+        customDrag_ = -1;
+        const CustomSpec& c = rows_[static_cast<std::size_t>(row)].custom;
+        if (c.mouseUp) c.mouseUp(dragRect_, x, y);
+        return true;
+    }
     if (drag_ >= 0) {
         const int row = drag_;
         drag_ = -1;
@@ -1107,11 +1176,12 @@ bool RowList::MouseUp(int x, int y, int scroll) {
     return true;
 }
 
-bool RowList::RightClick(HWND /*host*/, int x, int y, int scroll) {
+bool RowList::RightClick(HWND host, int x, int y, int scroll) {
     RECT r;
     const int index = HitRow(x, y, scroll, &r);
     if (index < 0) return false;
     const Row& row = rows_[static_cast<std::size_t>(index)];
+    if (row.kind == Kind::Custom) return row.custom.rightClick && row.custom.rightClick(host, r, x, y);
     if (row.kind != Kind::Slider || !row.slider.set) return false;
     row.slider.set(row.slider.defaultValue);  // Like 3ds Max spinners: right-click resets.
     if (row.slider.released) row.slider.released();

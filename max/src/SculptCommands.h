@@ -60,6 +60,8 @@ bool DeleteHigherLevels();
 bool ReverseSubdivision();
 void CaptureSurface();
 void ClearSurface();
+// Profile rollout: shapes the active SculptGroup with the profile curve.
+bool ApplyProfile();
 
 // --- W / E / R -------------------------------------------------------------------------
 // With a usable mask the unmasked region is transformed (sub-object level

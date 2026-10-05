@@ -174,6 +174,25 @@ std::size_t SculptSession::applyDab(const BrushSettings& settings, const Dab& da
             applyMaskDab(settings, d, changed);
             continue;
         }
+        if (settings.type == BrushType::Density) {
+            const float strength = clamp01(settings.strength) * clamp01(d.pressure) * std::max(0.0f, d.amount);
+            if (!(d.radius > 0.0f) || !isFinite(d.center) || !(strength > 0.0f)) continue;
+            if (densityWeight_.size() != mesh_.vertexCount()) densityWeight_.assign(mesh_.vertexCount(), 0.0f);
+            scratch_.verts.clear();
+            bvh_.gatherVertices(mesh_, d.center, d.radius, scratch_.verts, hiddenTriangles());
+            for (std::uint32_t v : scratch_.verts) {
+                if (settings.backfaceCull && dot(mesh_.normal(v), d.viewDir) > 0.0f) continue;
+                const float w = brushFalloff(length(mesh_.position(v) - d.center) / d.radius, settings.useFalloff) * strength *
+                                (hasMask_ ? 1.0f - clamp01(mask_[v]) : 1.0f);
+                if (w > densityWeight_[v]) {
+                    densityWeight_[v] = w;
+                    ++changed;
+                }
+            }
+            densityRadius_ = d.radius;
+            densityPainted_ = densityPainted_ || changed > 0;
+            continue;
+        }
         if (settings.type == BrushType::FaceGroups) {
             applyGroupDab(settings, d, changed);
             continue;
@@ -278,6 +297,34 @@ void SculptSession::commitMoved() {
         }
     }
     moved_.clear();
+}
+
+std::size_t SculptSession::applyTargets(const std::vector<std::uint32_t>& vertices, const std::vector<Vec3>& targets,
+                                       bool useMask) {
+    if (!valid() || vertices.size() != targets.size()) return 0;
+    if (!recorder_.active()) beginStroke();
+    moved_.clear();
+    std::size_t count = 0;
+    for (std::size_t i = 0; i < vertices.size(); ++i) {
+        const std::uint32_t v = vertices[i];
+        if (v >= mesh_.vertexCount() || !isFinite(targets[i]) || !vertexVisible(v)) continue;
+        const Vec3& current = mesh_.position(v);
+        const float keep = useMask && hasMask_ ? clamp01(mask_[v]) : 0.0f;
+        const Vec3 target = targets[i] + (current - targets[i]) * keep;
+        if (target == current) continue;
+        recorder_.touch(v, current);
+        mesh_.setPosition(v, target);
+        moved_.push_back(v);
+        ++count;
+    }
+    commitMoved();
+    return count;
+}
+
+void SculptSession::clearDensityWeights() {
+    densityWeight_.clear();
+    densityRadius_ = 0.0f;
+    densityPainted_ = false;
 }
 
 StrokeDelta SculptSession::endStroke() {

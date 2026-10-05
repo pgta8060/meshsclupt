@@ -2,12 +2,15 @@ add_library(SculptCore STATIC
   src/alpha.cpp
   src/brush.cpp
   src/bvh.cpp
+  src/cut.cpp
+  src/deform.cpp
   src/display_chunks.cpp
   src/layers.cpp
   src/mesh.cpp
   src/multires.cpp
   src/parallel.cpp
   src/poly.cpp
+  src/remesh.cpp
   src/session.cpp
   src/session_ops.cpp
   src/stroke.cpp
@@ -25,12 +28,15 @@ if(SCULPT_BUILD_TESTS)
     tests/test_main.cpp
     tests/test_brush.cpp
     tests/test_bvh.cpp
+    tests/test_cut.cpp
+    tests/test_deform.cpp
     tests/test_display.cpp
     tests/test_features.cpp
     tests/test_layers.cpp
     tests/test_math.cpp
     tests/test_mesh.cpp
     tests/test_multires.cpp
+    tests/test_remesh.cpp
     tests/test_session.cpp
     tests/test_stroke.cpp
   )

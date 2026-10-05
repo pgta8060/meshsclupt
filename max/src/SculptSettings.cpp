@@ -72,6 +72,31 @@ const PropInfo kProps[] = {
     {"displaceOffsetU", -1000, 1000, 0, false, false},
     {"displaceOffsetV", -1000, 1000, 0, false, false},
     {"displaceLive", 0, 1, 1, true, false},
+    {"clothIterations", 1, 50, 4, false, true},
+    {"clothDamping", 0, 1, 0.3f, false, false},
+    {"clothPlasticity", 0, 1, 0, false, false},
+    {"clothBendiness", 0, 1, 0.5f, false, false},
+    {"clothFoldSize", 0, 1, 0.5f, false, false},
+    {"clothFoldStrength", 0, 1, 0, false, false},
+    {"clothBendStiffness", 0, 1, 0.2f, false, false},
+    {"clothSimulationArea", 1, 5, 2, false, false},
+    {"clothMoveStrength", 0, 1, 1, false, false},
+    {"clothGravity", -1, 1, 0, false, false},
+    {"clothPressure", -1, 1, 0, false, false},
+    {"clothPinBoundary", 0, 1, 1, true, false},
+    {"poseDeformation", 0, 2, 0, false, true},
+    {"poseRotationOrigins", 0, 1, 0, false, true},
+    {"poseOriginOffset", -1, 1, 0, false, false},
+    {"poseSmoothIterations", 0, 20, 2, false, true},
+    {"poseIkSegments", 1, 8, 1, false, true},
+    {"poseKeepAnchor", 0, 1, 1, true, false},
+    {"poseConnectedOnly", 0, 1, 1, true, false},
+    {"tubeSides", 3, 64, 12, false, true},
+    {"tubeSpacing", 4, 200, 30, false, false},
+    {"tubeSurfaceOffset", -1, 2, 0, false, false},
+    {"profileUse", 0, 1, 0, true, false},
+    {"profileTarget", 0, 1, 0, false, true},
+    {"profileMapping", 0, 3, 0, false, true},
 };
 static_assert(sizeof(kProps) / sizeof(kProps[0]) == static_cast<std::size_t>(kPropCount), "PropInfo table out of sync");
 
@@ -184,6 +209,7 @@ void SculptSettings::ResetToDefaults() {
     alphaFolder_.clear();
     alphaCategory_ = "builtin";
     displaceMap_.clear();
+    profileCurve_.clear();
     alphaFavorites_.clear();
     Changed();
 }
@@ -275,6 +301,12 @@ void SculptSettings::SetDisplaceMap(const std::string& path) {
     Changed();
 }
 
+void SculptSettings::SetProfileCurveText(const std::string& text) {
+    if (text == profileCurve_) return;
+    profileCurve_ = text;
+    Changed();
+}
+
 void SculptSettings::SetAlphaCategory(const std::string& category) {
     const std::string value = category.empty() ? std::string("builtin") : category;
     if (value == alphaCategory_) return;
@@ -310,6 +342,7 @@ std::string SculptSettings::ToText() const {
     os << "alphaFolder=" << alphaFolder_ << '\n';
     os << "alphaCategory=" << alphaCategory_ << '\n';
     os << "displaceMap=" << displaceMap_ << '\n';
+    os << "profileCurve=" << profileCurve_ << '\n';
     for (const std::string& fav : alphaFavorites_) os << "alphaFavorite=" << fav << '\n';
     return os.str();
 }
@@ -364,6 +397,8 @@ void SculptSettings::FromText(const std::string& text) {
             SetAlphaCategory(value);
         } else if (key == "displaceMap") {
             SetDisplaceMap(value);
+        } else if (key == "profileCurve") {
+            SetProfileCurveText(value);
         } else if (key == "alphaFavorite") {
             sawFavorites = true;
             if (!value.empty() && std::find(favorites.begin(), favorites.end(), value) == favorites.end())

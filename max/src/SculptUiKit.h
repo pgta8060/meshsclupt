@@ -144,6 +144,17 @@ public:
         std::function<float(float)> toPosition;  // ... and back.
         std::function<void()> released;          // Optional: called when a drag ends.
     };
+    // Owner-drawn row (e.g. a curve editor). Coordinates are host-client pixels;
+    // a mouseDown that returns true captures the following drag. Callbacks
+    // return true when the host must redraw.
+    struct CustomSpec {
+        std::function<int(int width)> height;
+        std::function<void(HDC, const RECT&)> paint;
+        std::function<bool(HWND host, const RECT&, int x, int y, bool doubleClick)> mouseDown;
+        std::function<bool(const RECT&, int x, int y)> mouseDrag;
+        std::function<bool(const RECT&, int x, int y)> mouseUp;
+        std::function<bool(HWND host, const RECT&, int x, int y)> rightClick;
+    };
 
     void Clear() { rows_.clear(); }
     // Rows added after a section belong to it until the next section.
@@ -163,6 +174,8 @@ public:
     void Text(const std::wstring& label, std::function<std::wstring()> get, std::function<void(const std::wstring&)> set,
               Visible visible = {});
 
+    void Custom(CustomSpec spec, Visible visible = {});
+
     int ContentHeight(int width) const;
     // Paints into `area` of the host window; input coordinates below are
     // host-client coordinates relative to the last painted area.
@@ -174,14 +187,17 @@ public:
     bool MouseUp(int x, int y, int scroll);
     bool RightClick(HWND host, int x, int y, int scroll);
     bool MouseLeave();
-    void CaptureLost() { drag_ = -1; }
+    void CaptureLost() {
+        drag_ = -1;
+        customDrag_ = -1;
+    }
     // The host forwards kFinishEditMessage here.
     static constexpr UINT kFinishEditMessage = WM_APP + 0x5C1;
     void FinishEdit(bool commit);
     bool Editing() const { return edit_ != nullptr; }
 
 private:
-    enum class Kind { Section, Buttons, Slider, Check, Choice, Colors, Note, List, Text };
+    enum class Kind { Section, Buttons, Slider, Check, Choice, Colors, Note, List, Text, Custom };
     struct Row {
         Kind kind;
         std::wstring label;
@@ -204,6 +220,7 @@ private:
         std::function<int()> selected;
         std::function<void(int)> select;
         std::function<void(const std::wstring&)> setText;
+        CustomSpec custom;
     };
     struct Placed {
         int row;
@@ -212,7 +229,7 @@ private:
 
     void Add(Row row);
     std::vector<Placed> Layout(int width) const;
-    int RowHeight(const Row& row) const;
+    int RowHeight(const Row& row, int width) const;
     int HitRow(int x, int y, int scroll, RECT* rect) const;
     static RECT SliderTrack(const RECT& r);
     static RECT SliderValue(const RECT& r);
@@ -231,6 +248,7 @@ private:
     mutable int width_ = 0;
     mutable POINT origin_ = {0, 0};
     int drag_ = -1;          // Row whose slider is being dragged.
+    int customDrag_ = -1;    // Custom row that captured the mouse.
     RECT dragRect_{};
     float pending_ = 0.0f;   // Value shown while dragging an applyOnRelease slider.
     int hotRow_ = -1;

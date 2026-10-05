@@ -165,14 +165,14 @@ const BrushInfo& brushInfo(BrushType type) {
         {"Snake Hook", "snakeHook", true, false, false, 1.0f, false, true},
         {"Face groups", "faceGroups", true, false, false, 1.0f, true, false},
         {"Smooth SG Border", "smoothGroupBorder", true, false, false, 0.5f, true, true},
-        {"Density", "density", false, true, false, 0.5f, true, true},
+        {"Density", "density", true, true, false, 0.5f, true, true},
         {"Revert", "revert", true, false, false, 0.5f, true, true},
-        {"Clip", "clip", false, false, false, 1.0f, false, false},
-        {"Cutter", "cutter", false, false, false, 1.0f, false, false},
-        {"Slice", "slice", false, false, false, 1.0f, false, false},
-        {"Cloth", "cloth", false, true, false, 0.5f, true, true},
-        {"Pose", "pose", false, false, false, 1.0f, false, true},
-        {"Curve Tube", "curveTube", false, false, false, 1.0f, false, true},
+        {"Clip", "clip", true, false, false, 1.0f, false, false},
+        {"Cutter", "cutter", true, false, false, 1.0f, false, false},
+        {"Slice", "slice", true, false, false, 1.0f, false, false},
+        {"Cloth", "cloth", true, true, false, 0.5f, true, true},
+        {"Pose", "pose", true, false, false, 1.0f, false, true},
+        {"Curve Tube", "curveTube", true, false, false, 1.0f, false, true},
         {"Displace", "displace", false, true, true, 0.5f, true, true},
         {"Paint Mask", "maskPaint", true, true, false, 0.7f, true, true},
     };
@@ -190,8 +190,22 @@ const char* brushName(BrushType type) {
 bool isSignedBrush(BrushType type) { return type < BrushType::Count && brushInfo(type).isSigned; }
 
 bool isGeometryBrush(BrushType type) {
-    return type != BrushType::FaceGroups && type != BrushType::MaskPaint && type < BrushType::Count &&
-           static_cast<int>(type) >= 0 && brushInfo(type).available;
+    // Brushes moved by applyDab kernels (the others are handled by the session or the host).
+    switch (type) {
+        case BrushType::FaceGroups:
+        case BrushType::MaskPaint:
+        case BrushType::Density:
+        case BrushType::Clip:
+        case BrushType::Cutter:
+        case BrushType::Slice:
+        case BrushType::Cloth:
+        case BrushType::Pose:
+        case BrushType::CurveTube:
+        case BrushType::Displace:
+            return false;
+        default:
+            return type < BrushType::Count && static_cast<int>(type) >= 0 && brushInfo(type).available;
+    }
 }
 
 float brushFalloff(float t, bool useFalloff) {
