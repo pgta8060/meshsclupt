@@ -1,0 +1,32 @@
+add_library(SculptCore STATIC
+  src/brush.cpp
+  src/bvh.cpp
+  src/mesh.cpp
+  src/session.cpp
+  src/stroke.cpp
+)
+target_include_directories(SculptCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+set_target_properties(SculptCore PROPERTIES POSITION_INDEPENDENT_CODE ON)
+sculpt_configure_target(SculptCore)
+
+if(SCULPT_BUILD_TESTS)
+  add_executable(sculpt_tests
+    tests/test_main.cpp
+    tests/test_brush.cpp
+    tests/test_bvh.cpp
+    tests/test_math.cpp
+    tests/test_mesh.cpp
+    tests/test_session.cpp
+    tests/test_stroke.cpp
+  )
+  target_link_libraries(sculpt_tests PRIVATE SculptCore)
+  sculpt_configure_target(sculpt_tests)
+  add_test(NAME sculpt_tests COMMAND sculpt_tests)
+endif()
+
+if(SCULPT_BUILD_BENCH)
+  add_executable(sculpt_bench bench/bench_main.cpp)
+  target_include_directories(sculpt_bench PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+  target_link_libraries(sculpt_bench PRIVATE SculptCore)
+  sculpt_configure_target(sculpt_bench)
+endif()
