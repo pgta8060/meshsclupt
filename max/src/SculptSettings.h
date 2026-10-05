@@ -55,6 +55,7 @@ enum class Prop : int {
     SculptMaterialPreview,
     ColorAR, ColorAG, ColorAB,
     ColorBR, ColorBG, ColorBB,
+    MenusOpen,     // Floating Sculpt Mesh menus are shown with the Modify panel.
     Count
 };
 
@@ -123,7 +124,11 @@ public:
     const std::string& AlphaLibraryFolder() const { return alphaFolder_; }
     void SetAlphaLibraryFolder(const std::string& folder);
     const std::vector<std::string>& AlphaFavorites() const { return alphaFavorites_; }
+    bool IsAlphaFavorite(const std::string& path) const;
     void ToggleAlphaFavorite(const std::string& path);
+    // Alphas page category: "builtin", "favorites", or a library sub-folder name ("." = root).
+    const std::string& AlphaCategory() const { return alphaCategory_; }
+    void SetAlphaCategory(const std::string& category);
 
     // --- Persistence (UTF-8 "key=value" lines) -------------------------------------
     std::string ToText() const;
@@ -142,6 +147,7 @@ private:
     std::vector<sculpt::BrushType> palette_;
     std::string alphaId_;
     std::string alphaFolder_;
+    std::string alphaCategory_;
     std::vector<std::string> alphaFavorites_;
     std::vector<Listener*> listeners_;
     bool notifying_ = false;

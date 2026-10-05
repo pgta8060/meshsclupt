@@ -5,9 +5,11 @@
 #include <MNNormalSpec.h>
 #include <objmode.h>
 
+#include "MultiresRollout.h"
+#include "SculptActions.h"
 #include "SculptMode.h"
-#include "SculptPanel.h"
 #include "SculptSettings.h"
+#include "SculptUI.h"
 
 namespace {
 
@@ -57,10 +59,6 @@ UScaleModBoxCMode* SculptMeshObject::uscaleMode_ = nullptr;
 NUScaleModBoxCMode* SculptMeshObject::nuscaleMode_ = nullptr;
 SquashModBoxCMode* SculptMeshObject::squashMode_ = nullptr;
 
-// Defined in SculptActions.cpp (keyboard shortcuts).
-int SculptActionTableCount();
-ActionTable* SculptActionTable(int i);
-
 // --- Class descriptor -------------------------------------------------------------
 
 class SculptMeshObjectClassDesc : public ClassDesc2 {
@@ -74,8 +72,8 @@ public:
     const TCHAR* Category() override { return GetString(IDS_CATEGORY); }
     const TCHAR* InternalName() override { return _T("SculptMeshObject"); }
     HINSTANCE HInstance() override { return hInstance; }
-    int NumActionTables() override { return SculptActionTableCount(); }
-    ActionTable* GetActionTable(int i) override { return SculptActionTable(i); }
+    int NumActionTables() override { return SculptActions::TableCount(); }
+    ActionTable* GetActionTable(int i) override { return SculptActions::Table(i); }
 };
 
 ClassDesc2* GetSculptMeshObjectDesc() {
@@ -195,12 +193,16 @@ void SculptMeshObject::BeginEditParams(IObjParam* ip, ULONG flags, Animatable* p
         nuscaleMode_ = new NUScaleModBoxCMode(this, ip);
         squashMode_ = new SquashModBoxCMode(this, ip);
     }
-    SculptPanel::Open(ip, this);
+    MultiresRollout::Open(ip, this);
+    SculptActions::Activate();
+    SculptUI::OnEditBegin();
 }
 
 void SculptMeshObject::EndEditParams(IObjParam* ip, ULONG flags, Animatable* next) {
     if (SculptMode::Get().Target() == this) SculptMode::Get().Stop();
-    SculptPanel::Close(ip);
+    SculptUI::OnEditEnd();
+    SculptActions::Deactivate();
+    MultiresRollout::Close(ip);
     if (moveMode_) {
         ip->DeleteMode(moveMode_);
         ip->DeleteMode(rotateMode_);
@@ -270,13 +272,20 @@ void SculptMeshObject::ReleaseSession() {
     sessionStale_ = false;
 }
 
-void SculptMeshObject::CommitSessionChanges() {
+void SculptMeshObject::CommitSessionChanges(bool interactive) {
     if (!bridge_) return;
     sculpt::SculptSession& session = bridge_->Session();
     const unsigned pushed = bridge_->PushDirty(mm, attributes_);
+    if ((pushed & (SculptSessionBridge::kGroups | SculptSessionBridge::kVisibility)) != 0u)
+        displayRebuildPending_ = true;
     if (display_) {
-        if ((pushed & (SculptSessionBridge::kGroups | SculptSessionBridge::kVisibility)) != 0u) {
-            display_->Build(session, DisplayOptions());  // Chunk layout depends on groups/visibility.
+        // The chunk layout depends on groups/visibility: rebuild (at most every
+        // 150 ms while painting groups on a dense mesh).
+        const DWORD now = GetTickCount();
+        if (displayRebuildPending_ && (!interactive || now - lastDisplayRebuild_ >= 150)) {
+            display_->Build(session, DisplayOptions());
+            displayRebuildPending_ = false;
+            lastDisplayRebuild_ = now;
         } else {
             if (session.displayAllDirty())
                 display_->MarkAll();
@@ -366,6 +375,7 @@ void SculptMeshObject::SetFastDisplay(bool on) {
         if (!display_) display_ = std::make_unique<SculptDisplay>();
         display_->Build(bridge_->Session(), DisplayOptions());
         bridge_->Session().clearDisplayDirty();
+        displayRebuildPending_ = false;
         fastDisplay_ = true;
     } else {
         if (!fastDisplay_ && !display_) return;
@@ -495,7 +505,7 @@ void SculptMeshObject::GetSubObjectTMs(SubObjAxisCallback* cb, TimeValue t, INod
 void SculptMeshObject::TransformStart(TimeValue /*t*/) {
     if (xformActive_) return;
     xformActive_ = true;
-    xformOrigin_.resize(static_cast<std::size_t>(std::max(mm.numv, 0)));
+    xformOrigin_.resize(static_cast<std::size_t>(std::max<int>(mm.numv, 0)));
     for (int v = 0; v < mm.numv; ++v) xformOrigin_[v] = mm.v[v].p;
     if (editInterface_) editInterface_->LockAxisTripods(TRUE);
 }

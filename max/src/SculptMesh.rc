@@ -5,30 +5,33 @@
 LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
 
 /////////////////////////////////////////////////////////////////////////////
-// Modify-panel rollout (phase 1)
+// Modify-panel rollout
 
-IDD_SCULPT_PANEL DIALOGEX 0, 0, 108, 186
+IDD_MULTIRES DIALOGEX 0, 0, 108, 104
 STYLE DS_SETFONT | WS_CHILD | WS_VISIBLE
 FONT 8, "MS Sans Serif", 0, 0, 0x0
 BEGIN
-    CONTROL         "Sculpt", IDC_SCULPT_BUTTON, "CustButton", WS_TABSTOP, 4, 4, 100, 16
-    LTEXT           "Brush:", IDC_STATIC, 4, 27, 24, 8
-    COMBOBOX        IDC_BRUSH_COMBO, 32, 25, 72, 80, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    CONTROL         "Add", IDC_ADD_RADIO, "Button", BS_AUTORADIOBUTTON | WS_GROUP | WS_TABSTOP, 16, 42, 34, 10
-    CONTROL         "Sub", IDC_SUB_RADIO, "Button", BS_AUTORADIOBUTTON, 60, 42, 34, 10
-    RTEXT           "Size (px):", IDC_STATIC, 4, 59, 44, 8
-    CONTROL         "", IDC_SIZE_EDIT, "CustEdit", WS_TABSTOP, 50, 58, 42, 10
-    CONTROL         "", IDC_SIZE_SPIN, "SpinnerControl", 0x0, 93, 58, 7, 10
-    RTEXT           "Strength:", IDC_STATIC, 4, 73, 44, 8
-    CONTROL         "", IDC_STRENGTH_EDIT, "CustEdit", WS_TABSTOP, 50, 72, 42, 10
-    CONTROL         "", IDC_STRENGTH_SPIN, "SpinnerControl", 0x0, 93, 72, 7, 10
-    RTEXT           "Spacing:", IDC_STATIC, 4, 87, 44, 8
-    CONTROL         "", IDC_SPACING_EDIT, "CustEdit", WS_TABSTOP, 50, 86, 42, 10
-    CONTROL         "", IDC_SPACING_SPIN, "SpinnerControl", 0x0, 93, 86, 7, 10
-    CONTROL         "Use Falloff", IDC_FALLOFF_CHECK, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 8, 102, 90, 10
-    CONTROL         "Backface Cull", IDC_BACKFACE_CHECK, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 8, 114, 90, 10
-    LTEXT           "", IDC_INFO_TEXT, 6, 131, 98, 8
-    LTEXT           "", IDC_HELP_TEXT, 6, 145, 98, 34
+    CONTROL         "Open Sculpt Mesh Menus", IDC_MENUS_BUTTON, "CustButton", WS_TABSTOP, 4, 4, 100, 14
+    CONTROL         "Sculpt", IDC_SCULPT_BUTTON, "CustButton", WS_TABSTOP, 4, 22, 100, 14
+    LTEXT           "", IDC_INFO_TEXT, 6, 42, 98, 8
+    LTEXT           "", IDC_HELP_TEXT, 6, 54, 98, 48
+END
+
+/////////////////////////////////////////////////////////////////////////////
+// Default keyboard shortcuts (action table "Sculpt Mesh")
+
+IDR_SCULPT_SHORTCUTS ACCELERATORS
+BEGIN
+    "1",            ID_SCULPT_SLOT1,            VIRTKEY, NOINVERT
+    "2",            ID_SCULPT_SLOT2,            VIRTKEY, NOINVERT
+    "3",            ID_SCULPT_SLOT3,            VIRTKEY, NOINVERT
+    "4",            ID_SCULPT_SLOT4,            VIRTKEY, NOINVERT
+    "5",            ID_SCULPT_SLOT5,            VIRTKEY, NOINVERT
+    VK_SPACE,       ID_SCULPT_QUICK_MENU,       VIRTKEY, NOINVERT
+    "W",            ID_SCULPT_MOVE,             VIRTKEY, NOINVERT
+    "E",            ID_SCULPT_ROTATE,           VIRTKEY, NOINVERT
+    "R",            ID_SCULPT_SCALE,            VIRTKEY, NOINVERT
+    "W",            ID_SCULPT_GROUP_FROM_MASK,  VIRTKEY, CONTROL, NOINVERT
 END
 
 /////////////////////////////////////////////////////////////////////////////
@@ -40,26 +43,45 @@ BEGIN
     IDS_CLASS_NAME          "Sculpt Mesh"
     IDS_CATEGORY            "Sculpt Mesh"
     IDS_OBJECT_NAME         "Sculpt Mesh"
-    IDS_ROLLUP_TITLE        "Sculpt Mesh"
     IDS_UNDO_STROKE         "Sculpt Stroke"
     IDS_UNDO_CONVERT        "Convert to Sculpt Mesh"
-    IDS_PROMPT_SCULPT       "Sculpt Mesh: drag to sculpt | Shift: Smooth | Alt: invert | Right-click: exit"
+    IDS_PROMPT_SCULPT       "Sculpt Mesh: drag to sculpt | Shift smooth | Alt invert | Ctrl mask | Ctrl+Shift drag: size | Space or right-click: Quick Menu"
     IDS_ERR_SELECT_ONE      "Sculpt Mesh: select a single Sculpt Mesh object to sculpt."
     IDS_ERR_CANNOT_CONVERT  "This object cannot be converted to a Sculpt Mesh."
-    IDS_BRUSH_SCULPT        "Sculpt"
-    IDS_BRUSH_SMOOTH        "Smooth"
-    IDS_BRUSH_INFLATE       "Inflate"
-    IDS_BRUSH_PINCH         "Pinch"
     IDS_INFO_FORMAT         "Vertices: %d   Polygons: %d"
     IDS_FP_DESCRIPTION      "Sculpt Mesh tools"
+    IDS_UNDO_TRANSFORM      "Sculpt Mesh Transform"
+    IDS_UNDO_MASK           "Sculpt Mask"
+    IDS_UNDO_GROUPS         "SculptGroups"
+    IDS_UNDO_VISIBILITY     "SculptGroup Visibility"
+    IDS_ERR_SELECT_BASE     "Sculpt Mesh: select the Sculpt Mesh entry (not a modifier) in the modifier stack."
+    IDS_ERR_NO_MASK         "Sculpt Mesh: paint a mask first (Ctrl+W turns the mask into a SculptGroup)."
+    IDS_PROMPT_LINE_START   "Sculpt Mesh: line start set. Ctrl+Alt+click again to draw a straight stroke."
+    IDS_ROLLUP_MULTIRES     "Multires"
+    IDS_OPEN_MENUS          "Open Sculpt Mesh Menus"
+    IDS_CLOSE_MENUS         "Close Sculpt Mesh Menus"
+    IDS_MULTIRES_HELP       "Pick a brush in the bottom palette.\nHold Space or right-click for the Quick Menu.\nSubdivision levels arrive in phase 7."
+    IDS_ACTION_TABLE        "Sculpt Mesh"
+    IDS_ACTION_CATEGORY     "Sculpt Mesh"
+    IDS_ACT_SLOT1           "Palette Slot 1"
+    IDS_ACT_SLOT2           "Palette Slot 2"
+    IDS_ACT_SLOT3           "Palette Slot 3"
+    IDS_ACT_SLOT4           "Palette Slot 4"
+    IDS_ACT_SLOT5           "Palette Slot 5"
+    IDS_ACT_QUICK_MENU      "Quick Menu (hold)"
+    IDS_ACT_MOVE            "Move (mask aware)"
+    IDS_ACT_ROTATE          "Rotate (mask aware)"
+    IDS_ACT_SCALE           "Scale (mask aware)"
+    IDS_ACT_GROUP_FROM_MASK "SculptGroup from Mask"
+    IDS_ACT_TOGGLE_MENUS    "Open/Close Sculpt Mesh Menus"
 END
 
 /////////////////////////////////////////////////////////////////////////////
 // Version
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 0,1,0,0
- PRODUCTVERSION 0,1,0,0
+ FILEVERSION 0,6,0,0
+ PRODUCTVERSION 0,6,0,0
  FILEFLAGSMASK 0x3fL
  FILEFLAGS 0x0L
  FILEOS 0x40004L
@@ -71,11 +93,11 @@ BEGIN
         BLOCK "040904b0"
         BEGIN
             VALUE "FileDescription", "Sculpt Mesh plugin for 3ds Max"
-            VALUE "FileVersion", "0.1.0"
+            VALUE "FileVersion", "0.6.0"
             VALUE "InternalName", "SculptMesh"
             VALUE "OriginalFilename", "SculptMesh.dlo"
             VALUE "ProductName", "Sculpt Mesh"
-            VALUE "ProductVersion", "0.1.0"
+            VALUE "ProductVersion", "0.6.0"
         END
     END
     BLOCK "VarFileInfo"

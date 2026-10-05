@@ -13,7 +13,7 @@
 #define SCULPTMESH_CID_SCULPT_MODE (CID_USER + 0x5C01)
 
 // Plugin version shown to users and scripts.
-#define SCULPTMESH_VERSION_STRING _T("0.1.0 (phase 1)")
+#define SCULPTMESH_VERSION_STRING _T("0.6.0 (phases 1-6)")
 
 extern HINSTANCE hInstance;
 

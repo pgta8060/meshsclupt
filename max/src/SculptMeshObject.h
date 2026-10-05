@@ -90,8 +90,10 @@ public:
     SculptSessionBridge* Bridge() { return bridge_.get(); }
 
     // Copies everything the session changed into the MNMesh/attributes,
-    // refreshes the display and notifies 3ds Max.
-    void CommitSessionChanges();
+    // refreshes the display and notifies 3ds Max. While `interactive` (during
+    // a stroke) display rebuilds for SculptGroup/visibility changes are
+    // throttled; the final commit of the stroke catches up.
+    void CommitSessionChanges(bool interactive = false);
 
     // Runs a whole-mesh operation on the session as one undo step.
     // Returns false if there is no session or nothing changed.
@@ -132,6 +134,8 @@ private:
     bool sessionStale_ = false;
     std::unique_ptr<SculptDisplay> display_;
     bool fastDisplay_ = false;
+    bool displayRebuildPending_ = false;
+    DWORD lastDisplayRebuild_ = 0;
 
     int subLevel_ = 0;
     bool xformActive_ = false;

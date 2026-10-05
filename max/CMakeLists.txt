@@ -11,15 +11,20 @@ endif()
 set(MAXSDK_LIB_DIR "${MAXSDK_DIR}/lib/x64/Release")
 
 add_library(SculptMeshMax SHARED
+  src/AlphaLibrary.cpp
   src/ConvertToSculpt.cpp
   src/DllEntry.cpp
-  src/SculptInterface.cpp
+  src/MultiresRollout.cpp
+  src/SculptActions.cpp
+  src/SculptCommands.cpp
   src/SculptDisplay.cpp
+  src/SculptInterface.cpp
   src/SculptMeshObject.cpp
   src/SculptMode.cpp
-  src/SculptPanel.cpp
   src/SculptSessionBridge.cpp
   src/SculptSettings.cpp
+  src/SculptUI.cpp
+  src/SculptUiKit.cpp
   src/SculptMesh.rc
   src/SculptMesh.def
 )
@@ -50,7 +55,7 @@ target_link_libraries(SculptMeshMax PRIVATE
   SculptCore
   core geom gfx mesh mnmath maxutil maxscrpt paramblk2 poly bmm
   graphicsdriver databridge maxgraphicsobjects optimesh
-  comctl32
+  comctl32 comdlg32 shell32
 )
 
 # Package layout: <prefix>/plugins/SculptMesh.dlo, <prefix>/macroscripts/*.mcr

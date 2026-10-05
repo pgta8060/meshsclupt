@@ -1,15 +1,48 @@
 // MAXScript access: the static "SculptMesh" interface, e.g.
-//   SculptMesh.Brush = #smooth
+//   SculptMesh.Brush = #clay
 //   SculptMesh.BrushSize = 80
+//   SculptMesh.SetValue "mirrorX" 1
+//   SculptMesh.Run "maskInvert"
 //   SculptMesh.StartSculpt()
 #include <ifnpub.h>
+#include <maxscript/maxscript.h>
 
 #include "ConvertToSculpt.h"
+#include "SculptCommands.h"
 #include "SculptMeshObject.h"
 #include "SculptMode.h"
 #include "SculptSettings.h"
+#include "SculptUI.h"
 
 namespace {
+
+std::string Utf8(const MCHAR* text) {
+    if (!text) return std::string();
+    const MSTR s(text);
+    return std::string(s.ToUTF8().data());
+}
+
+// "strength" (active brush), "brush.clay.strength" (a given brush) or a setting key.
+bool ResolveKey(const std::string& key, Prop& prop, bool& isProp, sculpt::BrushType& brush, BrushProp& brushProp) {
+    if (findProp(key, prop)) {
+        isProp = true;
+        return true;
+    }
+    isProp = false;
+    brush = SculptSettings::Get().Brush();
+    if (findBrushProp(key, brushProp)) return true;
+    if (key.rfind("brush.", 0) != 0) return false;
+    const std::size_t dot = key.find('.', 6);
+    if (dot == std::string::npos || !findBrushProp(key.substr(dot + 1), brushProp)) return false;
+    const std::string name = key.substr(6, dot - 6);
+    for (int b = 0; b < static_cast<int>(sculpt::BrushType::Count); ++b) {
+        if (_stricmp(name.c_str(), sculpt::brushInfo(static_cast<sculpt::BrushType>(b)).scriptName) == 0) {
+            brush = static_cast<sculpt::BrushType>(b);
+            return true;
+        }
+    }
+    return false;
+}
 
 class SculptMeshInterface : public FPStaticInterface {
 public:
@@ -35,6 +68,15 @@ public:
         kGetBackfaceCull,
         kSetBackfaceCull,
         kGetVersion,
+        kGetValue,
+        kSetValue,
+        kRun,
+        kOpenMenus,
+        kCloseMenus,
+        kGetMenusOpen,
+        kSetMenusOpen,
+        kResetSettings,
+        kSaveSettings,
     };
     enum EnumId { kBrushEnum };
 
@@ -51,22 +93,20 @@ public:
         PROP_FNS(kGetUseFalloff, GetUseFalloff, kSetUseFalloff, SetUseFalloff, TYPE_bool)
         PROP_FNS(kGetBackfaceCull, GetBackfaceCull, kSetBackfaceCull, SetBackfaceCull, TYPE_bool)
         RO_PROP_FN(kGetVersion, GetVersion, TYPE_TSTR_BV)
+        FN_1(kGetValue, TYPE_FLOAT, GetValue, TYPE_STRING)
+        FN_2(kSetValue, TYPE_bool, SetValue, TYPE_STRING, TYPE_FLOAT)
+        FN_1(kRun, TYPE_bool, Run, TYPE_STRING)
+        VFN_0(kOpenMenus, OpenMenus)
+        VFN_0(kCloseMenus, CloseMenus)
+        PROP_FNS(kGetMenusOpen, GetMenusOpen, kSetMenusOpen, SetMenusOpen, TYPE_bool)
+        VFN_0(kResetSettings, ResetSettings)
+        VFN_0(kSaveSettings, SaveSettings)
     END_FUNCTION_MAP
 
     // Starts sculpting the selected Sculpt Mesh (opens the Modify panel if needed).
-    bool StartSculpt() {
-        Interface* core = GetCOREInterface();
-        if (!core || core->GetSelNodeCount() != 1) return false;
-        INode* node = core->GetSelNode(0);
-        Object* ref = node ? node->GetObjectRef() : nullptr;
-        if (!ref || ref->FindBaseObject()->ClassID() != SCULPTMESH_CLASS_ID) return false;
-        if (core->GetCommandPanelTaskMode() != TASK_MODE_MODIFY) core->SetCommandPanelTaskMode(TASK_MODE_MODIFY);
-        SculptMeshObject* edited = SculptMeshObject::EditedObject();
-        if (!edited || edited != ref->FindBaseObject()) return false;
-        return SculptMode::Get().Start(SculptMeshObject::EditInterface(), edited);
-    }
-    void StopSculpt() { SculptMode::Get().Stop(); }
-    bool IsSculpting() { return SculptMode::Get().IsActive(); }
+    bool StartSculpt() { return SculptCommands::StartSculpting(); }
+    void StopSculpt() { SculptCommands::StopSculpting(); }
+    bool IsSculpting() { return SculptCommands::IsSculpting(); }
 
     bool ConvertToSculpt(INode* node) {
         Interface* core = GetCOREInterface();
@@ -81,18 +121,55 @@ public:
             SculptSettings::Get().SetBrush(static_cast<sculpt::BrushType>(brush));
     }
     float GetBrushSize() { return SculptSettings::Get().Size(); }
-    void SetBrushSize(float v) { SculptSettings::Get().SetSize(v); }
+    void SetBrushSize(float v) { SculptSettings::Get().Set(Prop::BrushSize, v); }
     float GetBrushStrength() { return SculptSettings::Get().Strength(); }
     void SetBrushStrength(float v) { SculptSettings::Get().SetStrength(v); }
     float GetStrokeSpacing() { return SculptSettings::Get().Spacing(); }
-    void SetStrokeSpacing(float v) { SculptSettings::Get().SetSpacing(v); }
+    void SetStrokeSpacing(float v) { SculptSettings::Get().Set(Prop::StrokeSpacing, v); }
     bool GetSubtract() { return SculptSettings::Get().Subtract(); }
     void SetSubtract(bool v) { SculptSettings::Get().SetSubtract(v); }
-    bool GetUseFalloff() { return SculptSettings::Get().UseFalloff(); }
-    void SetUseFalloff(bool v) { SculptSettings::Get().SetUseFalloff(v); }
+    bool GetUseFalloff() { return SculptSettings::Get().Bool(Prop::UseFalloff); }
+    void SetUseFalloff(bool v) { SculptSettings::Get().SetBool(Prop::UseFalloff, v); }
     bool GetBackfaceCull() { return SculptSettings::Get().BackfaceCull(); }
-    void SetBackfaceCull(bool v) { SculptSettings::Get().SetBackfaceCull(v); }
+    void SetBackfaceCull(bool v) {
+        SculptSettings& s = SculptSettings::Get();
+        s.SetBrushValue(s.Brush(), BrushProp::BackfaceCull, v ? 1.0f : 0.0f);
+    }
     MSTR GetVersion() { return MSTR(SCULPTMESH_VERSION_STRING); }
+
+    float GetValue(const MCHAR* key) {
+        Prop prop = Prop::Count;
+        bool isProp = false;
+        sculpt::BrushType brush = sculpt::BrushType::Sculpt;
+        BrushProp brushProp = BrushProp::Strength;
+        if (!ResolveKey(Utf8(key), prop, isProp, brush, brushProp))
+            throw RuntimeError(_T("SculptMesh.GetValue: unknown setting "), key ? key : _T(""));
+        const SculptSettings& s = SculptSettings::Get();
+        return isProp ? s.Value(prop) : s.BrushValue(brush, brushProp);
+    }
+
+    bool SetValue(const MCHAR* key, float value) {
+        Prop prop = Prop::Count;
+        bool isProp = false;
+        sculpt::BrushType brush = sculpt::BrushType::Sculpt;
+        BrushProp brushProp = BrushProp::Strength;
+        if (!ResolveKey(Utf8(key), prop, isProp, brush, brushProp)) return false;
+        SculptSettings& s = SculptSettings::Get();
+        if (isProp)
+            s.Set(prop, value);
+        else
+            s.SetBrushValue(brush, brushProp, value);
+        return true;
+    }
+
+    bool Run(const MCHAR* command) { return SculptCommands::RunByName(Utf8(command)); }
+
+    void OpenMenus() { SculptUI::Open(); }
+    void CloseMenus() { SculptUI::Close(); }
+    bool GetMenusOpen() { return SculptUI::IsWanted(); }
+    void SetMenusOpen(bool open) { open ? SculptUI::Open() : SculptUI::Close(); }
+    void ResetSettings() { SculptSettings::Get().ResetToDefaults(); }
+    void SaveSettings() { SculptCommands::SaveSettings(); }
 };
 
 // clang-format off
@@ -104,6 +181,17 @@ SculptMeshInterface theSculptMeshInterface(
     SculptMeshInterface::kIsSculpting, _T("IsSculpting"), 0, TYPE_bool, 0, 0,
     SculptMeshInterface::kConvertToSculpt, _T("ConvertToSculpt"), 0, TYPE_bool, 0, 1,
         _T("node"), 0, TYPE_INODE,
+    SculptMeshInterface::kGetValue, _T("GetValue"), 0, TYPE_FLOAT, 0, 1,
+        _T("key"), 0, TYPE_STRING,
+    SculptMeshInterface::kSetValue, _T("SetValue"), 0, TYPE_bool, 0, 2,
+        _T("key"), 0, TYPE_STRING,
+        _T("value"), 0, TYPE_FLOAT,
+    SculptMeshInterface::kRun, _T("Run"), 0, TYPE_bool, 0, 1,
+        _T("command"), 0, TYPE_STRING,
+    SculptMeshInterface::kOpenMenus, _T("OpenMenus"), 0, TYPE_VOID, 0, 0,
+    SculptMeshInterface::kCloseMenus, _T("CloseMenus"), 0, TYPE_VOID, 0, 0,
+    SculptMeshInterface::kResetSettings, _T("ResetSettings"), 0, TYPE_VOID, 0, 0,
+    SculptMeshInterface::kSaveSettings, _T("SaveSettings"), 0, TYPE_VOID, 0, 0,
 
     properties,
         SculptMeshInterface::kGetBrush, SculptMeshInterface::kSetBrush, _T("Brush"), 0, TYPE_ENUM, SculptMeshInterface::kBrushEnum,
@@ -114,14 +202,38 @@ SculptMeshInterface theSculptMeshInterface(
         SculptMeshInterface::kGetUseFalloff, SculptMeshInterface::kSetUseFalloff, _T("UseFalloff"), 0, TYPE_bool,
         SculptMeshInterface::kGetBackfaceCull, SculptMeshInterface::kSetBackfaceCull, _T("BackfaceCull"), 0, TYPE_bool,
         SculptMeshInterface::kGetVersion, FP_NO_FUNCTION, _T("Version"), 0, TYPE_TSTR_BV,
+        SculptMeshInterface::kGetMenusOpen, SculptMeshInterface::kSetMenusOpen, _T("MenusOpen"), 0, TYPE_bool,
 
     enums,
-        SculptMeshInterface::kBrushEnum, 4,
+        SculptMeshInterface::kBrushEnum, 25,
             _T("sculpt"), static_cast<int>(sculpt::BrushType::Sculpt),
             _T("smooth"), static_cast<int>(sculpt::BrushType::Smooth),
             _T("inflate"), static_cast<int>(sculpt::BrushType::Inflate),
             _T("pinch"), static_cast<int>(sculpt::BrushType::Pinch),
+            _T("clay"), static_cast<int>(sculpt::BrushType::Clay),
+            _T("clayBuildup"), static_cast<int>(sculpt::BrushType::ClayBuildup),
+            _T("carve"), static_cast<int>(sculpt::BrushType::Carve),
+            _T("knife"), static_cast<int>(sculpt::BrushType::Knife),
+            _T("contrast"), static_cast<int>(sculpt::BrushType::Contrast),
+            _T("scrape"), static_cast<int>(sculpt::BrushType::Scrape),
+            _T("polish"), static_cast<int>(sculpt::BrushType::Polish),
+            _T("move"), static_cast<int>(sculpt::BrushType::Move),
+            _T("snakeHook"), static_cast<int>(sculpt::BrushType::SnakeHook),
+            _T("faceGroups"), static_cast<int>(sculpt::BrushType::FaceGroups),
+            _T("smoothGroupBorder"), static_cast<int>(sculpt::BrushType::SmoothGroupBorder),
+            _T("density"), static_cast<int>(sculpt::BrushType::Density),
+            _T("revert"), static_cast<int>(sculpt::BrushType::Revert),
+            _T("clip"), static_cast<int>(sculpt::BrushType::Clip),
+            _T("cutter"), static_cast<int>(sculpt::BrushType::Cutter),
+            _T("slice"), static_cast<int>(sculpt::BrushType::Slice),
+            _T("cloth"), static_cast<int>(sculpt::BrushType::Cloth),
+            _T("pose"), static_cast<int>(sculpt::BrushType::Pose),
+            _T("curveTube"), static_cast<int>(sculpt::BrushType::CurveTube),
+            _T("displace"), static_cast<int>(sculpt::BrushType::Displace),
+            _T("maskPaint"), static_cast<int>(sculpt::BrushType::MaskPaint),
     p_end);
 // clang-format on
+
+static_assert(static_cast<int>(sculpt::BrushType::Count) == 25, "Update the Brush enum in the SculptMesh interface.");
 
 }  // namespace

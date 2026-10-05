@@ -57,6 +57,7 @@ const PropInfo kProps[] = {
     {"colorBR", 0, 1, 0, false, false},
     {"colorBG", 0, 1, 0, false, false},
     {"colorBB", 0, 1, 0, false, false},
+    {"menusOpen", 0, 1, 1, true, false},
 };
 static_assert(sizeof(kProps) / sizeof(kProps[0]) == static_cast<std::size_t>(kPropCount), "PropInfo table out of sync");
 
@@ -167,6 +168,7 @@ void SculptSettings::ResetToDefaults() {
     palette_ = DefaultPaletteOrder();
     alphaId_.clear();
     alphaFolder_.clear();
+    alphaCategory_ = "builtin";
     alphaFavorites_.clear();
     Changed();
 }
@@ -252,6 +254,17 @@ void SculptSettings::SetAlphaLibraryFolder(const std::string& folder) {
     Changed();
 }
 
+void SculptSettings::SetAlphaCategory(const std::string& category) {
+    const std::string value = category.empty() ? std::string("builtin") : category;
+    if (value == alphaCategory_) return;
+    alphaCategory_ = value;
+    Changed();
+}
+
+bool SculptSettings::IsAlphaFavorite(const std::string& path) const {
+    return std::find(alphaFavorites_.begin(), alphaFavorites_.end(), path) != alphaFavorites_.end();
+}
+
 void SculptSettings::ToggleAlphaFavorite(const std::string& path) {
     auto it = std::find(alphaFavorites_.begin(), alphaFavorites_.end(), path);
     if (it == alphaFavorites_.end())
@@ -274,6 +287,7 @@ std::string SculptSettings::ToText() const {
     os << '\n';
     os << "alpha=" << alphaId_ << '\n';
     os << "alphaFolder=" << alphaFolder_ << '\n';
+    os << "alphaCategory=" << alphaCategory_ << '\n';
     for (const std::string& fav : alphaFavorites_) os << "alphaFavorite=" << fav << '\n';
     return os.str();
 }
@@ -324,6 +338,8 @@ void SculptSettings::FromText(const std::string& text) {
             SetAlphaId(value);
         } else if (key == "alphaFolder") {
             SetAlphaLibraryFolder(value);
+        } else if (key == "alphaCategory") {
+            SetAlphaCategory(value);
         } else if (key == "alphaFavorite") {
             sawFavorites = true;
             if (!value.empty() && std::find(favorites.begin(), favorites.end(), value) == favorites.end())

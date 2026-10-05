@@ -6,8 +6,10 @@
 #include <notify.h>
 #include <systemutilities.h>
 
+#include "SculptCommands.h"
 #include "SculptMeshPlugin.h"
 #include "SculptMode.h"
+#include "SculptUI.h"
 #include "sculpt/parallel.h"
 
 HINSTANCE hInstance = nullptr;
@@ -15,10 +17,20 @@ HINSTANCE hInstance = nullptr;
 namespace {
 
 // Leave sculpt mode before the scene goes away so no pointer outlives it.
-void OnSceneReset(void* /*param*/, NotifyInfo* /*info*/) { SculptMode::Get().Stop(); }
+void OnSceneReset(void* /*param*/, NotifyInfo* /*info*/) {
+    SculptMode::Get().Stop();
+    SculptUI::HideQuickMenu();
+}
 
-const int kSceneNotifications[] = {NOTIFY_SYSTEM_PRE_RESET, NOTIFY_SYSTEM_PRE_NEW, NOTIFY_FILE_PRE_OPEN,
-                                   NOTIFY_SYSTEM_SHUTDOWN};
+void OnStartup(void* /*param*/, NotifyInfo* /*info*/) { SculptCommands::LoadSettings(); }
+
+void OnShutdown(void* /*param*/, NotifyInfo* /*info*/) {
+    SculptMode::Get().Stop();
+    SculptCommands::SaveSettings();
+    SculptUI::Shutdown();
+}
+
+const int kSceneNotifications[] = {NOTIFY_SYSTEM_PRE_RESET, NOTIFY_SYSTEM_PRE_NEW, NOTIFY_FILE_PRE_OPEN};
 
 bool notificationsRegistered = false;
 
@@ -55,6 +67,8 @@ __declspec(dllexport) ULONG CanAutoDefer() { return 0; }
 __declspec(dllexport) int LibInitialize() {
     if (!notificationsRegistered) {
         for (int code : kSceneNotifications) RegisterNotification(OnSceneReset, nullptr, code);
+        RegisterNotification(OnStartup, nullptr, NOTIFY_SYSTEM_STARTUP);
+        RegisterNotification(OnShutdown, nullptr, NOTIFY_SYSTEM_SHUTDOWN);
         notificationsRegistered = true;
     }
     return TRUE;
@@ -64,6 +78,8 @@ __declspec(dllexport) int LibShutdown() {
     sculpt::shutdownParallel();  // Join worker threads before the DLL unloads.
     if (notificationsRegistered) {
         for (int code : kSceneNotifications) UnRegisterNotification(OnSceneReset, nullptr, code);
+        UnRegisterNotification(OnStartup, nullptr, NOTIFY_SYSTEM_STARTUP);
+        UnRegisterNotification(OnShutdown, nullptr, NOTIFY_SYSTEM_SHUTDOWN);
         notificationsRegistered = false;
     }
     return TRUE;

@@ -4,23 +4,23 @@
 #include <string>
 
 void SculptAttributes::Fit(const MNMesh& mesh) {
-    mask.resize(static_cast<std::size_t>(std::max(mesh.numv, 0)), 0.0f);
-    groups.resize(static_cast<std::size_t>(std::max(mesh.numf, 0)), 0);
-    hidden.resize(static_cast<std::size_t>(std::max(mesh.numf, 0)), 0u);
+    mask.resize(static_cast<std::size_t>(std::max<int>(mesh.numv, 0)), 0.0f);
+    groups.resize(static_cast<std::size_t>(std::max<int>(mesh.numf, 0)), 0);
+    hidden.resize(static_cast<std::size_t>(std::max<int>(mesh.numf, 0)), 0u);
 }
 
 bool SculptAttributes::Matches(const MNMesh& mesh) const {
-    return mask.size() == static_cast<std::size_t>(std::max(mesh.numv, 0)) &&
-           groups.size() == static_cast<std::size_t>(std::max(mesh.numf, 0)) &&
-           hidden.size() == static_cast<std::size_t>(std::max(mesh.numf, 0));
+    return mask.size() == static_cast<std::size_t>(std::max<int>(mesh.numv, 0)) &&
+           groups.size() == static_cast<std::size_t>(std::max<int>(mesh.numf, 0)) &&
+           hidden.size() == static_cast<std::size_t>(std::max<int>(mesh.numf, 0));
 }
 
 bool SculptSessionBridge::Build(const MNMesh& mesh, const SculptAttributes& attributes, MSTR& error) {
     session_.clear();
     coreToMaxVert_.clear();
     coreToMaxFace_.clear();
-    maxToCoreVert_.assign(static_cast<std::size_t>(std::max(mesh.numv, 0)), -1);
-    maxToCoreFace_.assign(static_cast<std::size_t>(std::max(mesh.numf, 0)), -1);
+    maxToCoreVert_.assign(static_cast<std::size_t>(std::max<int>(mesh.numv, 0)), -1);
+    maxToCoreFace_.assign(static_cast<std::size_t>(std::max<int>(mesh.numf, 0)), -1);
     numVerts_ = mesh.numv;
     numFaces_ = mesh.numf;
     const bool haveAttributes = attributes.Matches(mesh);
@@ -178,7 +178,7 @@ std::vector<std::uint64_t> SculptSessionBridge::FaceKeys(const MNMesh& mesh, scu
         // UV islands: polygons connected through shared map vertices of channel 1.
         MNMap* map = (mesh.MNum() > 1) ? mesh.M(1) : nullptr;
         if (!map || map->GetFlag(MN_DEAD) || map->numf != mesh.numf) return keys;
-        std::vector<int> parent(static_cast<std::size_t>(std::max(map->numv, 0)));
+        std::vector<int> parent(static_cast<std::size_t>(std::max<int>(map->numv, 0)));
         for (std::size_t i = 0; i < parent.size(); ++i) parent[i] = static_cast<int>(i);
         auto find = [&](int x) {
             while (parent[x] != x) x = parent[x] = parent[parent[x]];
