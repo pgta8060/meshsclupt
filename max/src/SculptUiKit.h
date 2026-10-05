@@ -53,6 +53,8 @@ void DrawGlyph(HDC dc, const RECT& r, Glyph glyph, COLORREF color);
 
 // Shaded clay sphere showing the brush's effect (palette and toolbar icons).
 void DrawBrushIcon(HDC dc, const RECT& r, sculpt::BrushType brush, COLORREF background);
+// Paint palette icons: 0 Paint, 1 Smudge, 2 Fill, 3 Blur, 4 Erase, 5 Gradient.
+void DrawPaintIcon(HDC dc, const RECT& r, int tool, COLORREF background);
 // Grayscale image (size*size bytes), e.g. an alpha thumbnail.
 void DrawGrayImage(HDC dc, const RECT& r, const unsigned char* gray, int size);
 // 0x00RRGGBB pixels, top row first.
@@ -168,8 +170,9 @@ public:
                 std::function<void()> swap, Visible visible = {});
     void Note(std::function<std::wstring()> text, Visible visible = {});
     // Selectable list (e.g. layers). Clicking the selected item calls select(-1).
+    // `context` (optional) runs on right-click over an item (screen point).
     void List(std::function<int()> count, std::function<std::wstring(int)> item, std::function<int()> selected,
-              std::function<void(int)> select, Visible visible = {});
+              std::function<void(int)> select, Visible visible = {}, std::function<void(int, POINT)> context = {});
     // Editable single-line text (click to type).
     void Text(const std::wstring& label, std::function<std::wstring()> get, std::function<void(const std::wstring&)> set,
               Visible visible = {});
@@ -220,6 +223,7 @@ private:
         std::function<int()> selected;
         std::function<void(int)> select;
         std::function<void(const std::wstring&)> setText;
+        std::function<void(int, POINT)> context;
         CustomSpec custom;
     };
     struct Placed {

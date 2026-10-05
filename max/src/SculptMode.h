@@ -4,6 +4,7 @@
 #pragma once
 
 #include <array>
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -14,6 +15,7 @@
 #include "sculpt/alpha.h"
 #include "sculpt/brush.h"
 #include "sculpt/deform.h"
+#include "sculpt/paint.h"
 #include "sculpt/stroke.h"
 
 class SculptMeshObject;
@@ -163,6 +165,7 @@ private:
         Pose,        // Pose: posing around the guide.
         Cloth,       // Cloth simulation under the brush.
         Tube,        // Curve Tube: adding, moving, relaxing or tapering.
+        Gradient,    // Paint Gradient: dragging from Color A to Color B.
     };
     enum class CutShape { Line, Curve, Rect, Circle };
     enum class TubeAction { Draw, MovePoint, Relax, Taper };
@@ -216,6 +219,16 @@ private:
     void UpdateTubeOverlay();
     float TubeRadius() const;
     bool SectionShape(std::vector<std::array<float, 2>>& section) const;
+
+    // Texture painting and the Displace brush (SculptModePaint.cpp).
+    bool PressPaint(HWND hwnd, IPoint2 m, int flags);
+    bool PaintDab(const sculpt::Dab& dab);
+    bool DisplaceDab(const sculpt::Dab& dab);
+    void FinishPaintStroke(const MCHAR* undoName);
+    void CancelPaintStroke();
+    void DragGradient(ViewExp& vpt, IPoint2 m);
+    void ApplyGradient(ViewExp& vpt, IPoint2 m);
+    bool StencilAt(const sculpt::Vec3& objectPoint, sculpt::Vec3& rgb, float& alpha) const;
 
     // Geometry helpers (object space unless noted).
     bool Raycast(ViewExp& vpt, float x, float y, bool cull, sculpt::RayHit& hit, sculpt::Vec3* rayDir = nullptr) const;
@@ -335,4 +348,16 @@ private:
     float tubeTaperStart_ = 1.0f;
     IPoint2 tubeLastPoint_{0, 0};
     ULONG sectionNode_ = 0;
+
+    // Texture painting.
+    bool paintActive_ = false;      // The current Stroke / DragDab paints texels.
+    sculpt::PaintStroke paintStroke_;
+    sculpt::PaintSettings paintSettings_;
+    int paintTool_ = 0;
+    bool paintErase_ = false;
+    bool colorMix_ = false;
+    bool useStencil_ = false;
+    std::uint32_t paintRandom_ = 0x2545F491u;
+    sculpt::Vec3 gradientFrom_;
+    std::function<bool(const sculpt::Vec3&, sculpt::Vec3&, float&)> stencil_;
 };

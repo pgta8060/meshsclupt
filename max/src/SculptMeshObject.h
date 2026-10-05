@@ -13,6 +13,7 @@
 #include "SculptSessionBridge.h"
 #include "sculpt/layers.h"
 #include "sculpt/multires.h"
+#include "sculpt/paint.h"
 
 class MoveModBoxCMode;
 class RotateModBoxCMode;
@@ -172,6 +173,51 @@ public:
     void SetLayersInternal(const sculpt::LayerStack& stack, bool moveVertices, int level, std::uint64_t topologyId);
     void SetLayerValues(int layer, const std::vector<std::uint32_t>& vertices, const std::vector<sculpt::Vec3>& values);
 
+    // --- Texture painting (SculptMeshPaint.cpp) -----------------------------------------
+    // Paint data lives while 3ds Max runs; Save / Save As write it to an image
+    // file, which is what the scene keeps.
+    struct PaintState;
+    // Creates the canvas on first use and (re)builds the texel map for the
+    // current UVs (map channel 1). Returns nullptr and fills `error` if the
+    // mesh cannot be painted.
+    PaintState* AcquirePaint(MSTR& error);
+    PaintState* Paint() { return paint_.get(); }
+    const sculpt::PaintCanvas* Canvas() const;
+    // The canvas changed: recomposite and refresh the viewport texture (at
+    // most every 40 ms while `interactive`).
+    void PaintChanged(bool interactive);
+    void PutPaintUndo(sculpt::PaintDelta delta, const MCHAR* undoName);  // Inside an open hold.
+    void ApplyPaintDelta(const sculpt::PaintDelta& delta, bool before);
+    // Paint layers (one undo step each).
+    bool NewPaintLayer();
+    bool DeletePaintLayer();
+    bool ClearPaintLayer();
+    bool ClearAllPaintLayers();
+    bool MovePaintLayer(int direction);
+    bool MergePaintLayers();  // Bake All: into the base texture.
+    void SelectPaintLayer(int index);
+    void SetPaintLayerEnabled(int index, bool on);
+    void SetPaintLayerOpacityLive(int index, float opacity);
+    void FinishPaintLayerOpacity();
+    void SetPaintLayerBlend(int index, sculpt::PaintBlend blend);
+    void SetPaintLayerName(int index, const std::string& name);
+    void SetPaintLayersInternal(const std::vector<sculpt::PaintLayer>& layers, int active);
+    bool ImportPaintTexture(int index, MSTR& error);  // Asks for the file.
+    // Layer adjustments with live preview: Begin, Preview (any number), End.
+    enum class Adjustment { HueSaturation, BrightnessContrast, Levels };
+    bool BeginPaintAdjustment();
+    void PreviewPaintAdjustment(Adjustment kind, const float values[5]);
+    void EndPaintAdjustment(bool commit);
+    // Material / Paint rollout.
+    bool SavePaintTexture(bool chooseFile, MSTR& error);
+    bool ReplacePaintTexture(MSTR& error);
+    bool ResizePaintTexture(int size, MSTR& error);  // Generated texture resolution.
+    bool RestoreMaterial();
+    bool HasOriginalMaterial() const;
+    MSTR PaintStatus() const;
+    // Paint mode on this object while sculpting: the viewport shows the paint texture.
+    bool PaintDisplayWanted() const;
+
     // Identifies the current topology + level; undo records only apply to it.
     std::uint64_t TopologyStamp() const { return (topologyId_ << 4) | static_cast<std::uint64_t>(level_ & 0xf); }
 
@@ -201,6 +247,10 @@ private:
     void AddLayerOffsets();  // mm += layer offsets (after building the layers' level).
     bool LayersHere() const { return !layers_.empty() && LayersUsable(); }
     static std::uint64_t NewTopologyId();
+    bool BuildPaintMap(MSTR& error);
+    void ChangePaintLayers(const std::function<bool(std::vector<sculpt::PaintLayer>&, int&)>& edit, int undoName);
+    INode* FindNode() const;
+    void ShowTextureOnNode(const std::wstring& path);
 
     Box3 SessionBounds() const;
     void Transform(TimeValue t, Matrix3& partm, Matrix3& tmAxis, const Matrix3& xfrm);
@@ -232,6 +282,7 @@ private:
     int layersLevel_ = 0;
     std::uint64_t layersTopologyId_ = 0;
     std::unique_ptr<sculpt::LayerStack> strengthDragStart_;
+    std::unique_ptr<PaintState> paint_;
 
     static SculptMeshObject* editedObject_;
     static IObjParam* editInterface_;
@@ -257,6 +308,27 @@ private:
     sculpt::StrokeDelta delta_;
     MSTR name_;
     std::uint64_t stamp_;
+};
+
+class PaintMaterialKeeper;
+
+struct SculptMeshObject::PaintState {
+    PaintState();
+    ~PaintState();
+    sculpt::PaintCanvas canvas;
+    sculpt::TexelMap map;
+    std::uint64_t mapStamp = 0;              // TopologyStamp the UV data belongs to.
+    std::vector<std::uint32_t> cornerKeys;   // UV index per session polygon corner.
+    std::vector<sculpt::Vec3> keyUVs;        // Map channel 1 vertices.
+    std::wstring path;                       // Paint texture file ("" until saved).
+    bool fromDiffuse = false;                // Base came from the material's diffuse map.
+    DWORD lastUpload = 0;
+    bool uploadPending = false;
+    std::vector<sculpt::PaintLayer> opacityDragStart;
+    bool opacityDragging = false;
+    std::shared_ptr<sculpt::Image> adjustSource;  // Layer pixels before an adjustment dialog.
+    std::uint64_t adjustImage = 0;
+    PaintMaterialKeeper* keeper = nullptr;   // The node's material before Sculpt Mesh assigned one.
 };
 
 struct SculptMeshObject::State {

@@ -16,6 +16,7 @@ add_library(SculptMeshMax SHARED
   src/DisplaceRollout.cpp
   src/DllEntry.cpp
   src/MultiresRollout.cpp
+  src/PaintImageIO.cpp
   src/PolyConvert.cpp
   src/ProfileEditor.cpp
   src/RowsRollup.cpp
@@ -24,13 +25,16 @@ add_library(SculptMeshMax SHARED
   src/SculptDisplay.cpp
   src/SculptInterface.cpp
   src/SculptMeshLayers.cpp
+  src/SculptMeshPaint.cpp
   src/SculptMeshObject.cpp
   src/SculptMode.cpp
+  src/SculptModePaint.cpp
   src/SculptModeTools.cpp
   src/SculptSessionBridge.cpp
   src/SculptSettings.cpp
   src/SculptUI.cpp
   src/SculptUiKit.cpp
+  src/Stencil.cpp
   src/SculptMesh.rc
   src/SculptMesh.def
 )

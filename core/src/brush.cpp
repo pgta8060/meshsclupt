@@ -173,7 +173,7 @@ const BrushInfo& brushInfo(BrushType type) {
         {"Cloth", "cloth", true, true, false, 0.5f, true, true},
         {"Pose", "pose", true, false, false, 1.0f, false, true},
         {"Curve Tube", "curveTube", true, false, false, 1.0f, false, true},
-        {"Displace", "displace", false, true, true, 0.5f, true, true},
+        {"Displace", "displace", true, true, true, 0.5f, true, true},
         {"Paint Mask", "maskPaint", true, true, false, 0.7f, true, true},
     };
     static_assert(sizeof(kInfo) / sizeof(kInfo[0]) == static_cast<std::size_t>(BrushType::Count),

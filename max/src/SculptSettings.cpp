@@ -97,6 +97,17 @@ const PropInfo kProps[] = {
     {"profileUse", 0, 1, 0, true, false},
     {"profileTarget", 0, 1, 0, false, true},
     {"profileMapping", 0, 3, 0, false, true},
+    {"paintTool", 0, 5, 0, false, true},
+    {"paintOpacity", 0, 1, 1, false, false},
+    {"paintHardness", 0, 1, 0.5f, false, false},
+    {"paintBlurStrength", 0, 1, 0.5f, false, false},
+    {"paintColorJitter", 0, 1, 0, false, false},
+    {"paintSource", 0, 1, 0, false, true},
+    {"paintResolution", 0, 3, 2, false, true},
+    {"stencilOpacity", 0.05f, 1, 0.5f, false, false},
+    {"stencilMode", 0, 1, 0, false, true},
+    {"displaceHeightMid", 0, 1, 0.5f, false, false},
+    {"displaceFade", 0, 1, 0.5f, false, false},
 };
 static_assert(sizeof(kProps) / sizeof(kProps[0]) == static_cast<std::size_t>(kPropCount), "PropInfo table out of sync");
 
@@ -172,6 +183,16 @@ bool findBrushProp(const std::string& key, BrushProp& out) {
     return false;
 }
 
+const char* paintToolName(int tool) {
+    static const char* const names[kPaintToolCount] = {"Paint", "Smudge", "Fill", "Blur", "Erase", "Gradient"};
+    return tool >= 0 && tool < kPaintToolCount ? names[tool] : "";
+}
+
+const char* paintToolScriptName(int tool) {
+    static const char* const names[kPaintToolCount] = {"paint", "smudge", "fill", "blur", "erase", "gradient"};
+    return tool >= 0 && tool < kPaintToolCount ? names[tool] : "";
+}
+
 std::vector<BrushType> DefaultPaletteOrder() {
     // Documentation order; brushes of later phases appear once available.
     const BrushType order[] = {BrushType::Sculpt,    BrushType::Clay,       BrushType::ClayBuildup,
@@ -205,6 +226,8 @@ void SculptSettings::ResetToDefaults() {
         brush_[b][static_cast<int>(BrushProp::LayerMode)] = 0.0f;
     }
     palette_ = DefaultPaletteOrder();
+    paintPalette_.clear();
+    for (int t = 0; t < kPaintToolCount; ++t) paintPalette_.push_back(t);
     alphaId_.clear();
     alphaFolder_.clear();
     alphaCategory_ = "builtin";
@@ -301,6 +324,27 @@ void SculptSettings::SetDisplaceMap(const std::string& path) {
     Changed();
 }
 
+void SculptSettings::SetPaintPaletteOrder(std::vector<int> order) {
+    std::vector<int> clean;
+    for (int t : order)
+        if (t >= 0 && t < kPaintToolCount && std::find(clean.begin(), clean.end(), t) == clean.end()) clean.push_back(t);
+    for (int t = 0; t < kPaintToolCount; ++t)
+        if (std::find(clean.begin(), clean.end(), t) == clean.end()) clean.push_back(t);
+    if (clean == paintPalette_) return;
+    paintPalette_ = clean;
+    Changed();
+}
+
+void SculptSettings::MovePaintPaletteItem(int from, int to) {
+    const int n = static_cast<int>(paintPalette_.size());
+    if (from < 0 || from >= n || to < 0 || to >= n || from == to) return;
+    std::vector<int> order = paintPalette_;
+    const int tool = order[static_cast<std::size_t>(from)];
+    order.erase(order.begin() + from);
+    order.insert(order.begin() + to, tool);
+    SetPaintPaletteOrder(order);
+}
+
 void SculptSettings::SetProfileCurveText(const std::string& text) {
     if (text == profileCurve_) return;
     profileCurve_ = text;
@@ -337,6 +381,9 @@ std::string SculptSettings::ToText() const {
                << brush_[b][p] << '\n';
     os << "palette=";
     for (std::size_t i = 0; i < palette_.size(); ++i) os << (i ? "," : "") << sculpt::brushInfo(palette_[i]).scriptName;
+    os << '\n';
+    os << "paintPalette=";
+    for (std::size_t i = 0; i < paintPalette_.size(); ++i) os << (i ? "," : "") << paintToolScriptName(paintPalette_[i]);
     os << '\n';
     os << "alpha=" << alphaId_ << '\n';
     os << "alphaFolder=" << alphaFolder_ << '\n';
@@ -389,6 +436,14 @@ void SculptSettings::FromText(const std::string& text) {
                 if (FindBrushByScriptName(Trim(item), b)) order.push_back(b);
             }
             SetPaletteOrder(order);
+        } else if (key == "paintPalette") {
+            std::vector<int> order;
+            std::istringstream items(value);
+            std::string item;
+            while (std::getline(items, item, ','))
+                for (int t = 0; t < kPaintToolCount; ++t)
+                    if (EqualsNoCase(Trim(item), paintToolScriptName(t))) order.push_back(t);
+            SetPaintPaletteOrder(order);
         } else if (key == "alpha") {
             SetAlphaId(value);
         } else if (key == "alphaFolder") {

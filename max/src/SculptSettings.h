@@ -95,6 +95,17 @@ enum class Prop : int {
     ProfileUse,
     ProfileTarget,          // 0 Curve Tube, 1 active SculptGroup
     ProfileMapping,         // 0 curve length, 1 local X, 2 local Y, 3 local Z
+    PaintTool,              // sculpt::PaintTool
+    PaintOpacity,
+    PaintHardness,
+    PaintBlurStrength,
+    PaintColorJitter,       // Scatter: Color A -> B variation.
+    PaintSource,            // 0 generated texture, 1 existing diffuse texture
+    PaintResolution,        // Generated size: 0 512, 1 1024, 2 2048, 3 4096
+    StencilOpacity,
+    StencilMode,            // 0 paint the stencil's colours, 1 stencil masks Color A
+    DisplaceHeightMid,      // Displace brush: neutral stencil height.
+    DisplaceFade,           // Displace brush: radial transition.
     Count
 };
 
@@ -156,6 +167,10 @@ public:
     const std::vector<sculpt::BrushType>& PaletteOrder() const { return palette_; }
     void SetPaletteOrder(std::vector<sculpt::BrushType> order);  // Sanitised: each available brush once.
     void MovePaletteItem(int from, int to);
+    // Paint tools in the order shown in the Paint palette (keys 1-5 in Paint mode).
+    const std::vector<int>& PaintPaletteOrder() const { return paintPalette_; }
+    void SetPaintPaletteOrder(std::vector<int> order);  // Sanitised: each tool once.
+    void MovePaintPaletteItem(int from, int to);
 
     // Active alpha: "" none, "builtin:N", or an image file path.
     const std::string& AlphaId() const { return alphaId_; }
@@ -190,6 +205,7 @@ private:
     std::array<float, static_cast<int>(Prop::Count)> values_{};
     std::array<std::array<float, static_cast<int>(BrushProp::Count)>, static_cast<int>(sculpt::BrushType::Count)> brush_{};
     std::vector<sculpt::BrushType> palette_;
+    std::vector<int> paintPalette_;
     std::string alphaId_;
     std::string alphaFolder_;
     std::string alphaCategory_;
@@ -199,6 +215,10 @@ private:
     std::vector<Listener*> listeners_;
     bool notifying_ = false;
 };
+
+constexpr int kPaintToolCount = 6;
+const char* paintToolName(int tool);        // "Paint", "Smudge", ...
+const char* paintToolScriptName(int tool);  // "paint", "smudge", ...
 
 // Brushes offered in the Sculpting palette by default, in documentation order.
 std::vector<sculpt::BrushType> DefaultPaletteOrder();

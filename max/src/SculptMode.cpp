@@ -8,6 +8,7 @@
 #include "SculptCommands.h"
 #include "SculptMeshObject.h"
 #include "SculptUI.h"
+#include "Stencil.h"
 #include "sculpt/symmetry.h"
 
 using sculpt::BrushType;
@@ -246,6 +247,7 @@ void SculptMode::ForgetObject(SculptMeshObject* object) {
 
 void SculptMode::EnterMode() {
     active_ = true;
+    Stencil::Get().SetActive(true);
     if (ip_ && !overlayRegistered_) {
         ip_->RegisterViewportDisplayCallback(FALSE, &overlay_);
         overlayRegistered_ = true;
@@ -266,6 +268,7 @@ void SculptMode::EnterMode() {
 
 void SculptMode::ExitMode() {
     Cancel();
+    Stencil::Get().SetActive(false);
     overlay_.Hide();
     if (object_) object_->SetFastDisplay(false);
     if (ip_) {
@@ -514,12 +517,14 @@ void SculptMode::Press(HWND hwnd, IPoint2 m, int flags, bool doubleClick) {
         sculpt::RayHit hit;
         if (Raycast(vpt, mx, my, true, hit)) activeGroup_ = object_->Bridge()->Session().groupOfTriangle(hit.triangle);
     }
-    if (!maskDirect && PressTool(hwnd, m, flags)) return;
+    const bool painting = settings.Mode() == ToolMode::Paint;
+    if (!maskDirect && !ctrl && painting && PressPaint(hwnd, m, flags)) return;
+    if (!maskDirect && !painting && PressTool(hwnd, m, flags)) return;
 
     const BrushType brush = settings.Brush();
     if (ctrl && alt) {
         // Click: straight line from the previous stroke. Drag: unmask.
-        const bool lineTool = maskDirect ? maskTool == MaskTool::PaintMask : IsLineBrush(brush);
+        const bool lineTool = maskDirect ? maskTool == MaskTool::PaintMask : (!painting && IsLineBrush(brush));
         if (lineTool) {
             gesture_ = Gesture::Chord;
             chordMaskDirect_ = maskDirect;
@@ -707,6 +712,7 @@ void SculptMode::Cancel() {
     const Gesture gesture = gesture_;
     if (gesture == Gesture::None) return;
     CancelTool();
+    CancelPaintStroke();
     gesture_ = Gesture::None;
     SculptSessionBridge* bridge = object_ ? object_->Bridge() : nullptr;
     if (bridge && bridge->Session().strokeActive()) {
@@ -738,7 +744,11 @@ void SculptMode::BeginStroke(HWND hwnd, IPoint2 m, const sculpt::BrushSettings& 
     lastDirX_ = 0.0f;
     lastDirY_ = -1.0f;
     ApplyStrokeSymmetry();
-    bridge->Session().beginStroke();
+    if (!paintActive_) bridge->Session().beginStroke();
+    if (brush.type == BrushType::Displace) {  // The stencil is sampled in this view.
+        projector_.Capture(vpt, objectToWorld_, worldToObject_, static_cast<float>(m.x), static_cast<float>(m.y));
+        Stencil::Get().SetViewport(hwnd);
+    }
 
     strokeMode_ = static_cast<StrokeMode>(settings.Int(Prop::StrokeMode));
     if (forceDraw || strokeMode_ == StrokeMode::ColorMix || IsGrabBrush(brush.type)) strokeMode_ = StrokeMode::Draw;
@@ -880,6 +890,8 @@ bool SculptMode::ApplySample(ViewExp& vpt, const sculpt::StrokeSample& sample, f
     overlay_.SetAnchor(hitWorld);
     lastDabCenter_ = hit.position;
     haveLastDab_ = true;
+    if (paintActive_) return PaintDab(dab);
+    if (strokeBrush_.type == BrushType::Displace) return DisplaceDab(dab);
     return bridge->Session().applyDab(strokeBrush_, dab) > 0;
 }
 
@@ -916,6 +928,10 @@ void SculptMode::ApplyGrab(ViewExp& vpt, IPoint2 m) {
 void SculptMode::FinishStroke(const MCHAR* undoName) {
     gesture_ = Gesture::None;
     strokeAlpha_.reset();
+    if (paintActive_) {
+        FinishPaintStroke(undoName);
+        return;
+    }
     SculptSessionBridge* bridge = object_ ? object_->Bridge() : nullptr;
     if (!bridge || !bridge->Session().strokeActive()) return;
     const sculpt::StrokeDelta delta = bridge->Session().endStroke();
@@ -1083,7 +1099,8 @@ void SculptMode::UpdateOverlay(HWND hwnd, IPoint2 m, int flags) {
     const bool usesMask = maskDirect || (ctrl && !shift);
 
     const BrushType brushType = settings.Brush();
-    const bool cutBrush = brushType == BrushType::Clip || brushType == BrushType::Cutter || brushType == BrushType::Slice;
+    const bool cutBrush = settings.Mode() != ToolMode::Paint &&
+                          (brushType == BrushType::Clip || brushType == BrushType::Cutter || brushType == BrushType::Slice);
     if ((ctrl && shift && alt) || (usesMask && maskTool != MaskTool::PaintMask) || (!usesMask && cutBrush)) {
         overlay_.Hide();  // Visibility gesture, Rectangle/Lasso or a cut tool: no brush circle.
     } else {

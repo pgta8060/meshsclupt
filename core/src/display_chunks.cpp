@@ -39,7 +39,7 @@ void DisplayChunks::clear() {
 }
 
 void DisplayChunks::build(const Mesh& mesh, std::uint32_t trianglesPerChunk, const std::vector<std::uint8_t>* hiddenFaces,
-                          const std::vector<std::int32_t>* faceGroups) {
+                          const std::vector<std::int32_t>* faceGroups, const std::vector<std::uint32_t>* cornerKeys) {
     clear();
     const std::uint32_t V = mesh.vertexCount();
     const std::uint32_t F = mesh.faceCount();
@@ -76,8 +76,12 @@ void DisplayChunks::build(const Mesh& mesh, std::uint32_t trianglesPerChunk, con
     }
     std::sort(order.begin(), order.end());
 
-    const bool grouped = faceGroups && faceGroups->size() == F;
-    std::unordered_map<std::uint64_t, std::uint32_t> localOf;  // (vertex, group) -> local index
+    // First corner of every polygon (corner keys are per polygon corner).
+    std::vector<std::uint32_t> cornerStart(static_cast<std::size_t>(F) + 1, 0u);
+    for (std::uint32_t f = 0; f < F; ++f) cornerStart[f + 1] = cornerStart[f] + static_cast<std::uint32_t>(mesh.faceVertices(f).size());
+    const bool keyed = cornerKeys && cornerKeys->size() == cornerStart[F];
+    const bool grouped = !keyed && faceGroups && faceGroups->size() == F;
+    std::unordered_map<std::uint64_t, std::uint32_t> localOf;  // (vertex, group or key) -> local index
     std::vector<std::uint64_t> edgeKeys;
 
     std::size_t i = 0;
@@ -85,13 +89,22 @@ void DisplayChunks::build(const Mesh& mesh, std::uint32_t trianglesPerChunk, con
         DisplayChunk chunk;
         localOf.clear();
         std::int32_t faceGroup = 0;
+        std::uint32_t face = 0;
         auto local = [&](std::uint32_t v) {
-            const std::uint64_t key = (static_cast<std::uint64_t>(v) << 32) | static_cast<std::uint32_t>(faceGroup);
+            std::uint32_t split = static_cast<std::uint32_t>(faceGroup);
+            if (keyed) {  // The key of this vertex's corner in the current polygon.
+                const Span<std::uint32_t> poly = mesh.faceVertices(face);
+                std::uint32_t k = 0;
+                while (k + 1 < poly.size() && poly[k] != v) ++k;
+                split = (*cornerKeys)[cornerStart[face] + k];
+            }
+            const std::uint64_t key = (static_cast<std::uint64_t>(v) << 32) | split;
             auto it = localOf.find(key);
             if (it == localOf.end()) {
                 it = localOf.emplace(key, static_cast<std::uint32_t>(chunk.vertices.size())).first;
                 chunk.vertices.push_back(v);
                 chunk.groups.push_back(faceGroup);
+                if (keyed) chunk.keys.push_back(split);
             }
             return it->second;
         };
@@ -99,6 +112,7 @@ void DisplayChunks::build(const Mesh& mesh, std::uint32_t trianglesPerChunk, con
         std::uint32_t triCount = 0;
         while (i < order.size() && (triCount == 0 || triCount < trianglesPerChunk)) {
             const std::uint32_t f = order[i++].second;
+            face = f;
             faceGroup = grouped ? std::max<std::int32_t>(0, (*faceGroups)[f]) : 0;
             for (std::uint32_t k = faceTriOffsets[f]; k < faceTriOffsets[f + 1]; ++k) {
                 for (std::uint32_t v : mesh.triangle(faceTris[k])) chunk.triangles.push_back(local(v));

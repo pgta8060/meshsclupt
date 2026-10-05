@@ -9,9 +9,11 @@
 #include <MaxDirectories.h>
 #include <cmdmode.h>
 
+#include "PaintImageIO.h"
 #include "SculptMeshObject.h"
 #include "SculptMode.h"
 #include "SculptUI.h"
+#include "Stencil.h"
 #include "sculpt/session.h"
 
 namespace SculptCommands {
@@ -141,8 +143,26 @@ void ChooseBrush(sculpt::BrushType brush) {
 }
 
 void SelectPaletteSlot(int slot) {
-    const std::vector<sculpt::BrushType>& order = SculptSettings::Get().PaletteOrder();
+    const SculptSettings& settings = SculptSettings::Get();
+    if (settings.Mode() == ToolMode::Paint && !settings.Bool(Prop::MaskDirect)) {
+        const std::vector<int>& tools = settings.PaintPaletteOrder();
+        if (slot >= 0 && slot < static_cast<int>(tools.size())) ChoosePaintTool(tools[static_cast<std::size_t>(slot)]);
+        return;
+    }
+    const std::vector<sculpt::BrushType>& order = settings.PaletteOrder();
     if (slot >= 0 && slot < static_cast<int>(order.size())) ChooseBrush(order[static_cast<std::size_t>(slot)]);
+}
+
+void SelectPaintMode() {
+    SculptSettings& settings = SculptSettings::Get();
+    settings.SetBool(Prop::MaskDirect, false);
+    settings.Set(Prop::ToolMode, static_cast<float>(ToolMode::Paint));
+    StartSculpting();
+}
+
+void ChoosePaintTool(int tool) {
+    SculptSettings::Get().Set(Prop::PaintTool, static_cast<float>(tool));
+    SelectPaintMode();
 }
 
 void SelectMaskTool(MaskTool tool) {
@@ -160,8 +180,8 @@ void SelectSculptMode() {
 }
 
 void SetStrokeMode(StrokeMode mode) {
-    if (mode == StrokeMode::ColorMix) return;  // Paint-only (texture painting arrives in phase 10).
     SculptSettings::Get().Set(Prop::StrokeMode, static_cast<float>(mode));
+    if (mode == StrokeMode::ColorMix && SculptSettings::Get().Mode() != ToolMode::Paint) SelectPaintMode();  // Paint-only.
 }
 
 // --- Operations ----------------------------------------------------------------------------
@@ -214,6 +234,23 @@ bool RunByName(const std::string& name) {
         StopSculpting();
         return true;
     }
+    if (EqualsNoCase(name, "sculptMode")) {
+        SelectSculptMode();
+        return true;
+    }
+    if (EqualsNoCase(name, "paintMode")) {
+        SelectPaintMode();
+        return true;
+    }
+    if (EqualsNoCase(name, "savePaintTexture")) return SavePaintTexture(false);
+    if (EqualsNoCase(name, "savePaintTextureAs")) return SavePaintTexture(true);
+    if (EqualsNoCase(name, "restoreMaterial")) return RestoreMaterial();
+    if (EqualsNoCase(name, "loadStencil")) return LoadStencil();
+    if (EqualsNoCase(name, "clearStencil")) {
+        ClearStencil();
+        return true;
+    }
+    if (EqualsNoCase(name, "applyProfile")) return ApplyProfile();
     const struct {
         const char* name;
         TransformKind kind;
@@ -269,6 +306,41 @@ bool DeleteHigherLevels() {
 bool ReverseSubdivision() {
     return RunObjectCommand([](SculptMeshObject& o, MSTR& e) { return o.ReverseSubdivision(e); });
 }
+
+bool SavePaintTexture(bool chooseFile) {
+    return RunObjectCommand([chooseFile](SculptMeshObject& o, MSTR& e) { return o.SavePaintTexture(chooseFile, e); });
+}
+
+bool ReplacePaintTexture() {
+    return RunObjectCommand([](SculptMeshObject& o, MSTR& e) { return o.ReplacePaintTexture(e); });
+}
+
+bool RestoreMaterial() {
+    return RunObjectCommand([](SculptMeshObject& o, MSTR&) { return o.RestoreMaterial(); });
+}
+
+bool LoadStencil(const std::wstring& path) {
+    const std::wstring file = path.empty() ? PaintImageIO::AskOpenImage(L"Load Stencil") : path;
+    if (file.empty()) return false;
+    MSTR error;
+    if (!Stencil::Get().Load(file, &error)) {
+        Interface* core = GetCOREInterface();
+        MessageBoxW(core ? core->GetMAXHWnd() : nullptr, error.data(), L"Sculpt Mesh", MB_OK | MB_ICONINFORMATION);
+        return false;
+    }
+    if (!IsSculpting()) StartSculpting();  // The stencil shows while sculpting / painting.
+    Stencil::Get().SetActive(IsSculpting());
+    if (Interface* core = GetCOREInterface()) Stencil::Get().SetViewport(core->GetActiveViewExp().GetHWnd());
+    SculptUI::Refresh();
+    return true;
+}
+
+void ClearStencil() {
+    Stencil::Get().Clear();
+    SculptUI::Refresh();
+}
+
+void ResetStencil() { Stencil::Get().ResetTransform(); }
 
 bool ApplyProfile() {
     const bool ok = RunObjectCommand([](SculptMeshObject&, MSTR& e) { return SculptMode::Get().ApplyProfileToGroup(e); });

@@ -321,6 +321,55 @@ std::size_t SculptSession::applyTargets(const std::vector<std::uint32_t>& vertic
     return count;
 }
 
+std::size_t SculptSession::applyDisplaceDab(const BrushSettings& settings, const Dab& dab,
+                                            const std::function<bool(const Vec3&, float&)>& height, float fade) {
+    if (!valid() || !height) return 0;
+    if (!recorder_.active()) beginStroke();
+    const float strength = clamp01(settings.strength) * clamp01(dab.pressure) * std::max(0.0f, dab.amount);
+    if (!(strength > 0.0f)) return 0;
+    const float sign = (settings.subtract != dab.invert) ? -1.0f : 1.0f;
+    const float edge = 1.0f - clamp01(fade);
+    std::size_t changed = 0;
+    for (std::size_t k = 0; k < symmetry_.size() && k < strokeStates_.size(); ++k) {
+        const Mat3& m = symmetry_[k];
+        const Mat3 back{{m.r0.x, m.r1.x, m.r2.x}, {m.r0.y, m.r1.y, m.r2.y}, {m.r0.z, m.r1.z, m.r2.z}};
+        const Vec3 center = m * dab.center, viewDir = m * dab.viewDir;
+        if (!(dab.radius > 0.0f) || !isFinite(center)) continue;
+        scratch_.verts.clear();
+        bvh_.gatherVertices(mesh_, center, dab.radius, scratch_.verts, hiddenTriangles());
+        moved_.clear();
+        StrokeState& state = strokeStates_[k];
+        for (std::uint32_t v : scratch_.verts) {
+            const Vec3 p = mesh_.position(v);
+            if (settings.backfaceCull && dot(mesh_.normal(v), viewDir) > 0.0f) continue;
+            const float t = length(p - center) / dab.radius;
+            if (t > 1.0f) continue;
+            float w = t <= edge ? 1.0f : 1.0f - (t - edge) / std::max(1.0f - edge, 1e-6f);
+            w = w * w * (3.0f - 2.0f * w) * strength * (hasMask_ ? 1.0f - clamp01(mask_[v]) : 1.0f);
+            float h = 0.0f;
+            if (w <= 0.0f || !height(back * p, h) || !std::isfinite(h)) continue;
+            const float desired = sign * h * dab.radius * 0.5f * w;
+            Vec3 target;
+            if (settings.layerMode) {
+                auto it = state.layer.find(v);
+                if (it == state.layer.end())
+                    it = state.layer.emplace(v, StrokeState::LayerEntry{p, mesh_.normal(v), 0.0f}).first;
+                if (std::fabs(desired) > std::fabs(it->second.height)) it->second.height = desired;
+                target = it->second.origin + it->second.normal * it->second.height;
+            } else {
+                target = p + mesh_.normal(v) * (desired * 0.2f);
+            }
+            if (target == p || !isFinite(target)) continue;
+            recorder_.touch(v, p);
+            mesh_.setPosition(v, target);
+            moved_.push_back(v);
+            ++changed;
+        }
+        commitMoved();
+    }
+    return changed;
+}
+
 void SculptSession::clearDensityWeights() {
     densityWeight_.clear();
     densityRadius_ = 0.0f;

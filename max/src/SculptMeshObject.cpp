@@ -343,7 +343,13 @@ void SculptMeshObject::Deform(Deformer* defProc, int useSel) {
 // --- Session ------------------------------------------------------------------------
 
 SculptDisplay::Options SculptMeshObject::DisplayOptions() const {
-    return SculptDisplay::Options{SculptSettings::Get().Bool(Prop::ShowMask), SculptSettings::Get().Bool(Prop::ShowGroups)};
+    SculptDisplay::Options options;
+    options.showMask = SculptSettings::Get().Bool(Prop::ShowMask);
+    options.showGroups = SculptSettings::Get().Bool(Prop::ShowGroups);
+    options.paint = PaintDisplayWanted();
+    if (display_ && paint_)  // Where the display finds the paint texture and UVs.
+        display_->SetPaintSource({&paint_->cornerKeys, &paint_->keyUVs, &paint_->canvas.composite()});
+    return options;
 }
 
 SculptSessionBridge* SculptMeshObject::AcquireSession(MSTR& error) {
@@ -465,12 +471,17 @@ void SculptMeshObject::GeometryChanged() {
 
 void SculptMeshObject::RefreshDisplayOptions() {
     if (!display_) return;
-    display_->SetOptions(DisplayOptions());
+    const SculptDisplay::Options options = DisplayOptions();
+    if (display_->SetOptions(options) && bridge_) {  // Paint display switched: new chunk layout.
+        display_->Build(bridge_->Session(), options);
+        bridge_->Session().clearDisplayDirty();
+    }
     NotifyDependents(FOREVER, PART_DISPLAY, REFMSG_CHANGE);
 }
 
 void SculptMeshObject::SetFastDisplay(bool on) {
-    on = on && SculptSettings::Get().Bool(Prop::SculptMaterialPreview);
+    // Painting always uses the fast display (it shows the paint texture).
+    on = on && (SculptSettings::Get().Bool(Prop::SculptMaterialPreview) || PaintDisplayWanted());
     if (on && bridge_) {
         if (!display_) display_ = std::make_unique<SculptDisplay>();
         display_->Build(bridge_->Session(), DisplayOptions());

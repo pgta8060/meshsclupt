@@ -3,6 +3,7 @@
 #pragma once
 
 #include <string>
+#include <windows.h>
 
 #include "SculptMeshPlugin.h"
 #include "SculptSettings.h"
@@ -27,6 +28,8 @@ void ChooseBrush(sculpt::BrushType brush);
 void SelectPaletteSlot(int slot);  // 0..4: keys 1-5 follow the palette order.
 void SelectMaskTool(MaskTool tool);
 void SelectSculptMode();           // Sculpt/Paint flyout: Sculpt.
+void SelectPaintMode();            // Sculpt/Paint flyout: Paint.
+void ChoosePaintTool(int tool);    // Paint palette (also switches to Paint).
 void SetStrokeMode(StrokeMode mode);
 
 // --- Whole-mesh operations (one undo step each) -----------------------------------
@@ -62,6 +65,14 @@ void CaptureSurface();
 void ClearSurface();
 // Profile rollout: shapes the active SculptGroup with the profile curve.
 bool ApplyProfile();
+
+// --- Material / Paint rollout (errors are shown to the user) ---------------------------
+bool SavePaintTexture(bool chooseFile);
+bool ReplacePaintTexture();
+bool RestoreMaterial();
+bool LoadStencil(const std::wstring& path = std::wstring());  // "" asks for a file.
+void ClearStencil();
+void ResetStencil();
 
 // --- W / E / R -------------------------------------------------------------------------
 // With a usable mask the unmasked region is transformed (sub-object level

@@ -6,6 +6,7 @@
 #include "SculptMeshPlugin.h"
 #include "SculptMode.h"
 #include "SculptUI.h"
+#include "Stencil.h"
 
 namespace {
 
@@ -27,6 +28,7 @@ ActionDescription kActions[] = {
     {ID_SCULPT_GROUP_FROM_MASK, IDS_ACT_GROUP_FROM_MASK, IDS_ACT_GROUP_FROM_MASK, IDS_ACTION_CATEGORY},
     {ID_SCULPT_TOGGLE_MENUS, IDS_ACT_TOGGLE_MENUS, IDS_ACT_TOGGLE_MENUS, IDS_ACTION_CATEGORY},
     {ID_SCULPT_CANCEL, IDS_ACT_CANCEL, IDS_ACT_CANCEL, IDS_ACTION_CATEGORY},
+    {ID_SCULPT_STENCIL, IDS_ACT_STENCIL, IDS_ACT_STENCIL, IDS_ACTION_CATEGORY},
 };
 
 class Callback : public ActionCallback {
@@ -64,6 +66,10 @@ public:
                 return TRUE;
             case ID_SCULPT_CANCEL:
                 return SculptMode::Get().CancelPending() ? TRUE : FALSE;
+            case ID_SCULPT_STENCIL:
+                // Held S transforms the stencil (read with GetKeyState by its mouse hook);
+                // the key is only taken while a stencil is loaded.
+                return Stencil::Get().Loaded() ? TRUE : FALSE;
             default:
                 return FALSE;
         }

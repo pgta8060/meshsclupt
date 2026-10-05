@@ -96,6 +96,13 @@ public:
     std::size_t applyTargets(const std::vector<std::uint32_t>& vertices, const std::vector<Vec3>& targets,
                              bool useMask = true);
 
+    // Displace brush: `height` maps an object-space point (on the stroke's
+    // side of any mirror) to the stencil height relative to Height Mid
+    // (about -1..1), false outside the stencil. `fade` 0 gives a hard edge,
+    // 1 a full radial falloff. Layer Mode settles at one height per stroke.
+    std::size_t applyDisplaceDab(const BrushSettings& settings, const Dab& dab,
+                                 const std::function<bool(const Vec3&, float&)>& height, float fade);
+
     // Density brush: dabs only paint a per-vertex weight (0..1); the host
     // remeshes the painted region when the stroke ends.
     const std::vector<float>& densityWeights() const { return densityWeight_; }

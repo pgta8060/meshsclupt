@@ -16,6 +16,7 @@
 #include "SculptMode.h"
 #include "SculptSettings.h"
 #include "SculptUiKit.h"
+#include "Stencil.h"
 
 using sculpt::BrushType;
 using namespace ui;
@@ -53,15 +54,22 @@ bool MaskShapeDirect() { return MaskDirect() && CurrentMaskTool() != MaskTool::P
 BrushType ContextBrush() { return MaskDirect() ? BrushType::MaskPaint : S().Brush(); }
 bool BrushContext() { return !MaskShapeDirect(); }
 bool AlphaActive() { return S().Bool(Prop::UseAlpha) && !S().AlphaId().empty(); }
-bool Is(BrushType b) { return BrushContext() && ContextBrush() == b; }
+bool PaintContext() { return !MaskDirect() && S().Mode() == ToolMode::Paint; }
+bool SculptContext() { return BrushContext() && !PaintContext(); }
+bool Is(BrushType b) { return SculptContext() && ContextBrush() == b; }
+bool PaintToolIs(sculpt::PaintTool tool) { return PaintContext() && S().Int(Prop::PaintTool) == static_cast<int>(tool); }
 bool CutBrush() { return Is(BrushType::Clip) || Is(BrushType::Cutter) || Is(BrushType::Slice); }
 // Brushes driven by their own gesture rather than spaced dabs.
 bool GestureBrush() { return CutBrush() || Is(BrushType::Pose) || Is(BrushType::Cloth) || Is(BrushType::CurveTube); }
-bool DabContext() { return BrushContext() && !GestureBrush(); }
+bool DabContext() {
+    return BrushContext() && !GestureBrush() && !PaintToolIs(sculpt::PaintTool::Fill) && !PaintToolIs(sculpt::PaintTool::Gradient);
+}
 bool SizeContext() { return BrushContext() && !CutBrush(); }
 bool StrengthContext() {
-    return BrushContext() && !CutBrush() && !Is(BrushType::FaceGroups) && !Is(BrushType::Pose) && !Is(BrushType::CurveTube);
+    return SculptContext() && !CutBrush() && !Is(BrushType::FaceGroups) && !Is(BrushType::Pose) && !Is(BrushType::CurveTube);
 }
+// Layers show the stack of the working mode.
+bool PaintLayersShown() { return S().Mode() == ToolMode::Paint; }
 std::wstring SectionName() {
     Interface* core = GetCOREInterface();
     const ULONG handle = SculptMode::Get().SectionNode();
@@ -221,7 +229,12 @@ protected:
             const COLORREF ink = active ? t.accentText : t.text;
             switch (i) {
                 case 0: DrawGlyph(dc, inner, Glyph::Select, ink); break;
-                case 1: DrawBrushIcon(dc, inner, S().Brush(), fill); break;
+                case 1:
+                    if (S().Mode() == ToolMode::Paint)
+                        DrawPaintIcon(dc, inner, S().Int(Prop::PaintTool), fill);
+                    else
+                        DrawBrushIcon(dc, inner, S().Brush(), fill);
+                    break;
                 case 2: {
                     const Glyph g[] = {Glyph::PaintMask, Glyph::Rectangle, Glyph::Lasso};
                     DrawGlyph(dc, inner, g[std::min(std::max(S().Int(Prop::MaskTool), 0), 2)], ink);
@@ -305,10 +318,11 @@ private:
                 SculptCommands::StopSculpting();
                 break;
             case 1: {
-                const bool sculpt = !MaskDirect();
-                const int chosen = PopupMenu({{1, L"Sculpt", sculpt, true}, {2, L"Paint  (phase 10)", false, false}},
+                const bool paint = S().Mode() == ToolMode::Paint;
+                const int chosen = PopupMenu({{1, L"Sculpt", !MaskDirect() && !paint, true}, {2, L"Paint", !MaskDirect() && paint, true}},
                                              FlyoutPoint(slot));
                 if (chosen == 1) SculptCommands::SelectSculptMode();
+                if (chosen == 2) SculptCommands::SelectPaintMode();
                 break;
             }
             case 2: {
@@ -326,7 +340,7 @@ private:
                 const int chosen = PopupMenu({{1, L"Draw", mode == 0, true},
                                               {2, L"Stamp", mode == 1, true},
                                               {3, L"Drag", mode == 2, true},
-                                              {4, L"Color Mix  (Paint, phase 10)", mode == 3, false},
+                                              {4, L"Color Mix  (Paint)", mode == 3, true},
                                               {5, L"Scatter", mode == 4, true}},
                                              FlyoutPoint(slot));
                 if (chosen > 0) SculptCommands::SetStrokeMode(static_cast<StrokeMode>(chosen - 1));
@@ -349,7 +363,7 @@ private:
 
 class PaletteWindow : public FloatingWindow {
 public:
-    enum class Page { Sculpting = 0, Alphas = 1 };
+    enum class Page { Sculpting = 0, Paint = 1, Alphas = 2 };
     PaletteWindow() { cornerRadius_ = Px(10); }
     int Height() const { return Px(100); }
     void SetPage(Page page) {
@@ -364,27 +378,33 @@ protected:
         bool isBrush = true;
         BrushType brush = BrushType::Sculpt;
         std::string alpha;  // "" = No Alpha.
+        int paintTool = -1;  // Paint page.
     };
 
     std::vector<Item> Items() const {
         std::vector<Item> items;
         if (page_ == Page::Sculpting) {
-            for (BrushType b : S().PaletteOrder()) items.push_back({true, b, std::string()});
+            for (BrushType b : S().PaletteOrder()) items.push_back({true, b, std::string(), -1});
             return items;
         }
-        items.push_back({false, BrushType::Sculpt, std::string()});
-        for (const std::string& id : AlphaLibrary::Get().Items("builtin")) items.push_back({false, BrushType::Sculpt, id});
+        if (page_ == Page::Paint) {
+            for (int tool : S().PaintPaletteOrder()) items.push_back({false, BrushType::Sculpt, std::string(), tool});
+            return items;
+        }
+        items.push_back({false, BrushType::Sculpt, std::string(), -1});
+        for (const std::string& id : AlphaLibrary::Get().Items("builtin")) items.push_back({false, BrushType::Sculpt, id, -1});
         const std::string& category = S().AlphaCategory();
         if (category != "builtin")
-            for (const std::string& id : AlphaLibrary::Get().Items(category)) items.push_back({false, BrushType::Sculpt, id});
+            for (const std::string& id : AlphaLibrary::Get().Items(category)) items.push_back({false, BrushType::Sculpt, id, -1});
         return items;
     }
+    bool Reorderable() const { return page_ == Page::Sculpting || page_ == Page::Paint; }
 
     int ItemWidth() const { return Px(64); }
     RECT TabRect(int i) const { return RECT{Px(8) + i * Px(84), Px(4), Px(8) + i * Px(84) + Px(80), Px(24)}; }
     RECT CategoryRect() const {
         const RECT c = ClientRect();
-        return RECT{Px(184), Px(4), std::min<LONG>(Px(184) + Px(170), c.right - Px(96)), Px(24)};
+        return RECT{Px(268), Px(4), std::min<LONG>(Px(268) + Px(170), c.right - Px(96)), Px(24)};
     }
     RECT BrowseRect() const {
         const RECT category = CategoryRect();
@@ -411,15 +431,16 @@ protected:
         scroll_ = std::max(0, std::min(scroll_, content - static_cast<int>(area.right - area.left)));
     }
     bool IsActive(const Item& item) const {
-        if (item.isBrush) return !MaskDirect() && S().Brush() == item.brush;
+        if (item.paintTool >= 0) return !MaskDirect() && S().Mode() == ToolMode::Paint && S().Int(Prop::PaintTool) == item.paintTool;
+        if (item.isBrush) return !MaskDirect() && S().Mode() != ToolMode::Paint && S().Brush() == item.brush;
         return S().AlphaId() == item.alpha;
     }
 
     void Paint(HDC dc, const RECT& client) override {
         const Theme& t = GetTheme();
         Fill(dc, client, t.background);
-        const wchar_t* tabs[] = {L"Sculpting", L"Alphas"};
-        for (int i = 0; i < 2; ++i) {
+        const wchar_t* tabs[] = {L"Sculpting", L"Paint", L"Alphas"};
+        for (int i = 0; i < 3; ++i) {
             const RECT r = TabRect(i);
             const bool active = static_cast<int>(page_) == i;
             RoundBox(dc, r, Px(6), active ? t.accent : (hotTab_ == i ? t.buttonHot : t.panel), t.border);
@@ -439,8 +460,10 @@ protected:
             RoundBox(dc, b, Px(6), t.button, t.border);
             Text(dc, b, L"Browse...", t.text, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
         } else {
-            RECT hint = {Px(184), Px(4), client.right - Px(8), Px(24)};
-            Text(dc, hint, L"Keys 1-5 pick the first five brushes  \x2022  drag to reorder", t.textDim,
+            RECT hint = {Px(268), Px(4), client.right - Px(8), Px(24)};
+            Text(dc, hint, page_ == Page::Paint ? L"Keys 1-5 pick the first five Paint tools  \x2022  drag to reorder"
+                                                : L"Keys 1-5 pick the first five brushes  \x2022  drag to reorder",
+                 t.textDim,
                  DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
         }
 
@@ -461,7 +484,10 @@ protected:
             RECT icon = {cell.left + (ItemWidth() - iconSize) / 2, cell.top + Px(3), cell.left + (ItemWidth() + iconSize) / 2,
                          cell.top + Px(3) + iconSize};
             std::wstring label;
-            if (item.isBrush) {
+            if (item.paintTool >= 0) {
+                DrawPaintIcon(dc, icon, item.paintTool, behind);
+                label = Widen(paintToolName(item.paintTool));
+            } else if (item.isBrush) {
                 DrawBrushIcon(dc, icon, item.brush, behind);
                 label = BrushName(item.brush);
             } else {
@@ -476,7 +502,7 @@ protected:
             }
             RECT text = {cell.left + Px(2), icon.bottom + Px(2), cell.right - Px(2), cell.bottom};
             Text(dc, text, label, t.text, DT_CENTER | DT_TOP | DT_SINGLELINE | DT_END_ELLIPSIS);
-            if (item.isBrush && i < 5) {  // Shortcut badge.
+            if ((item.isBrush || item.paintTool >= 0) && i < 5) {  // Shortcut badge.
                 RECT badge = {icon.left - Px(4), icon.top, icon.left + Px(10), icon.top + Px(14)};
                 RoundBox(dc, badge, Px(14), t.accent, t.accent);
                 Text(dc, badge, std::to_wstring(i + 1), t.accentText, DT_CENTER | DT_VCENTER | DT_SINGLELINE, BoldFont());
@@ -491,7 +517,7 @@ protected:
     }
 
     void MouseDown(int x, int y, bool /*doubleClick*/) override {
-        for (int i = 0; i < 2; ++i) {
+        for (int i = 0; i < 3; ++i) {
             const RECT r = TabRect(i);
             if (x >= r.left && x < r.right && y >= r.top && y < r.bottom) {
                 SetPage(static_cast<Page>(i));
@@ -515,7 +541,7 @@ protected:
     }
 
     void MouseMove(int x, int y, bool captured) override {
-        if (captured && pressed_ >= 0 && page_ == Page::Sculpting) {
+        if (captured && pressed_ >= 0 && Reorderable()) {
             if (!dragging_ && std::abs(x - pressX_) > Px(6)) dragging_ = true;
             if (dragging_) {
                 const RECT area = ItemsArea();
@@ -526,7 +552,7 @@ protected:
             return;
         }
         int tab = -1;
-        for (int i = 0; i < 2; ++i) {
+        for (int i = 0; i < 3; ++i) {
             const RECT r = TabRect(i);
             if (x >= r.left && x < r.right && y >= r.top && y < r.bottom) tab = i;
         }
@@ -545,7 +571,10 @@ protected:
             dragging_ = false;
             if (dropIndex_ >= 0 && pressed >= 0) {
                 const int to = dropIndex_ > pressed ? dropIndex_ - 1 : dropIndex_;
-                S().MovePaletteItem(pressed, to);
+                if (page_ == Page::Paint)
+                    S().MovePaintPaletteItem(pressed, to);
+                else
+                    S().MovePaletteItem(pressed, to);
             }
             dropIndex_ = -1;
             Invalidate();
@@ -555,7 +584,9 @@ protected:
         if (index < 0 || index != pressed) return;
         const std::vector<Item> items = Items();
         const Item& item = items[static_cast<std::size_t>(index)];
-        if (item.isBrush) {
+        if (item.paintTool >= 0) {
+            SculptCommands::ChoosePaintTool(item.paintTool);
+        } else if (item.isBrush) {
             SculptCommands::ChooseBrush(item.brush);
         } else {
             S().SetAlphaId(item.alpha);
@@ -574,7 +605,7 @@ protected:
         ClientToScreen(hwnd_, &p);
         const bool favorite = S().IsAlphaFavorite(id);
         const int chosen = PopupMenu({{1, L"Use as Alpha", false, true},
-                                      {2, L"Use as Stencil  (phase 10)", false, false},
+                                      {2, L"Use as Stencil", false, true},
                                       {3, L"Use as Displacement", false, true},
                                       {0, L""},
                                       {4, favorite ? L"Remove Favorite" : L"Add Favorite", false, true},
@@ -583,6 +614,8 @@ protected:
         if (chosen == 1) {
             S().SetAlphaId(id);
             S().SetBool(Prop::UseAlpha, true);
+        } else if (chosen == 2) {
+            SculptCommands::LoadStencil(Widen(id));
         } else if (chosen == 3) {
             S().SetDisplaceMap(id);
             DisplaceRollout::Apply();
@@ -662,6 +695,222 @@ private:
 
 // --- Right-side rollouts ----------------------------------------------------------------------------
 
+// --- Paint layers ------------------------------------------------------------------------------------
+
+const sculpt::PaintCanvas* PaintCanvasOf() { return Edited() ? Edited()->Canvas() : nullptr; }
+int PaintLayerCount() { return PaintCanvasOf() ? static_cast<int>(PaintCanvasOf()->layers().size()) : 0; }
+int ActivePaintLayer() { return PaintCanvasOf() ? PaintCanvasOf()->active() : -1; }
+bool PaintLayerSelected() { return PaintLayersShown() && ActivePaintLayer() >= 0; }
+const sculpt::PaintLayer* SelectedPaintLayer() {
+    const int a = ActivePaintLayer();
+    return a >= 0 && a < PaintLayerCount() ? &PaintCanvasOf()->layers()[static_cast<std::size_t>(a)] : nullptr;
+}
+void RedrawViewports() {
+    if (Interface* core = GetCOREInterface()) core->RedrawViews(core->GetTime());
+}
+void PaintLayerCommand(bool (SculptMeshObject::*command)()) {
+    if (SculptMeshObject* object = Edited()) (object->*command)();
+    RedrawViewports();
+}
+
+// Live-preview adjustment dialog (OK / Cancel) for the selected paint layer.
+class AdjustWindow : public FloatingWindow {
+public:
+    using Kind = SculptMeshObject::Adjustment;
+    void Open(Kind kind, POINT at) {
+        if (Visible()) Finish(false);
+        SculptMeshObject* object = Edited();
+        if (!object || !object->BeginPaintAdjustment()) return;
+        object_ = object;
+        kind_ = kind;
+        const float defaults[3][5] = {{0, 0, 0, 0, 0}, {0, 0, 0, 0, 0}, {0, 1, 255, 0, 255}};
+        for (int k = 0; k < 5; ++k) values_[k] = defaults[static_cast<int>(kind)][k];
+        Build();
+        Interface* core = GetCOREInterface();
+        if (!Hwnd() && !Create(core ? core->GetMAXHWnd() : nullptr)) return;
+        cornerRadius_ = Px(10);
+        const int width = Px(280);
+        SetBounds(at.x, at.y, width, rows_.ContentHeight(width - Px(12)) + Px(12));
+        Show(true);
+        Invalidate();
+    }
+    void Finish(bool commit) {
+        if (object_ && object_ == Edited()) object_->EndPaintAdjustment(commit);
+        object_ = nullptr;
+        Show(false);
+        RedrawViewports();
+        SculptUI::Refresh();
+    }
+
+protected:
+    void Paint(HDC dc, const RECT& client) override {
+        Fill(dc, client, GetTheme().background);
+        rows_.Paint(dc, RECT{Px(6), Px(6), client.right - Px(6), client.bottom - Px(6)}, 0);
+    }
+    void MouseDown(int x, int y, bool doubleClick) override {
+        if (rows_.MouseDown(hwnd_, x, y, doubleClick, 0)) Invalidate();
+    }
+    void MouseMove(int x, int y, bool captured) override {
+        if (rows_.MouseMove(x, y, captured, 0)) Invalidate();
+    }
+    void MouseUp(int x, int y) override {
+        if (rows_.MouseUp(x, y, 0)) Invalidate();
+    }
+    void RightClick(int x, int y) override {
+        if (rows_.RightClick(hwnd_, x, y, 0)) Invalidate();
+    }
+    void MouseLeave() override {
+        if (rows_.MouseLeave()) Invalidate();
+    }
+    void CaptureLost() override { rows_.CaptureLost(); }
+    LRESULT Message(UINT msg, WPARAM wp, LPARAM /*lp*/, bool& handled) override {
+        handled = msg == RowList::kFinishEditMessage;
+        if (handled) rows_.FinishEdit(wp != 0);
+        return 0;
+    }
+
+private:
+    void Slider(const wchar_t* label, int index, float lo, float hi, float defaultValue, int decimals) {
+        RowList::SliderSpec spec;
+        spec.label = label;
+        spec.get = [this, index] { return values_[index]; };
+        spec.set = [this, index](float v) {
+            values_[index] = v;
+            if (object_ && object_ == Edited()) object_->PreviewPaintAdjustment(kind_, values_);
+            RedrawViewports();
+        };
+        spec.min = lo;
+        spec.max = hi;
+        spec.typeMax = hi;
+        spec.defaultValue = defaultValue;
+        spec.decimals = decimals;
+        rows_.Slider(spec);
+    }
+    void Build() {
+        rows_.Clear();
+        const wchar_t* titles[] = {L"Hue / Saturation / Luminosity", L"Brightness / Contrast", L"Levels"};
+        rows_.Section(titles[static_cast<int>(kind_)], true);
+        switch (kind_) {
+            case Kind::HueSaturation:
+                Slider(L"Hue", 0, -180.0f, 180.0f, 0.0f, 0);
+                Slider(L"Saturation", 1, -100.0f, 100.0f, 0.0f, 0);
+                Slider(L"Luminosity", 2, -100.0f, 100.0f, 0.0f, 0);
+                break;
+            case Kind::BrightnessContrast:
+                Slider(L"Brightness", 0, -100.0f, 100.0f, 0.0f, 0);
+                Slider(L"Contrast", 1, -100.0f, 100.0f, 0.0f, 0);
+                break;
+            case Kind::Levels:
+                Slider(L"Input Black", 0, 0.0f, 255.0f, 0.0f, 0);
+                Slider(L"Gamma", 1, 0.1f, 10.0f, 1.0f, 2);
+                Slider(L"Input White", 2, 0.0f, 255.0f, 255.0f, 0);
+                Slider(L"Output Black", 3, 0.0f, 255.0f, 0.0f, 0);
+                Slider(L"Output White", 4, 0.0f, 255.0f, 255.0f, 0);
+                break;
+        }
+        rows_.Buttons({{L"OK", [this] { Finish(true); }, {}, {}, {}}, {L"Cancel", [this] { Finish(false); }, {}, {}, {}}});
+    }
+
+    RowList rows_;
+    Kind kind_ = Kind::HueSaturation;
+    float values_[5] = {0, 0, 0, 0, 0};
+    SculptMeshObject* object_ = nullptr;
+};
+
+AdjustWindow& Adjust() {
+    static AdjustWindow window;
+    return window;
+}
+
+void PaintLayerMenu(POINT screen) {
+    SculptMeshObject* object = Edited();
+    if (!object || ActivePaintLayer() < 0) return;
+    const int chosen = PopupMenu({{1, L"Import Texture...", false, true},
+                                  {0, L""},
+                                  {2, L"Hue / Saturation / Luminosity...", false, true},
+                                  {3, L"Brightness / Contrast...", false, true},
+                                  {4, L"Levels...", false, true}},
+                                 screen);
+    if (chosen == 1) {
+        MSTR error;
+        if (!object->ImportPaintTexture(ActivePaintLayer(), error) && error.Length() > 0) {
+            Interface* core = GetCOREInterface();
+            MessageBoxW(core ? core->GetMAXHWnd() : nullptr, error.data(), L"Sculpt Mesh", MB_OK | MB_ICONINFORMATION);
+        }
+        RedrawViewports();
+    } else if (chosen >= 2) {
+        Adjust().Open(static_cast<AdjustWindow::Kind>(chosen - 2), screen);
+    }
+}
+
+// Paint stack rows of the Layers rollout (the list shows the top layer first).
+void BuildPaintLayers(RowList& r) {
+    const auto shown = [] { return PaintLayersShown(); };
+    const auto hasLayers = [] { return PaintLayersShown() && PaintLayerCount() > 0; };
+    r.Buttons({{L"New", [] { PaintLayerCommand(&SculptMeshObject::NewPaintLayer); }, {}, {}, {}},
+               {L"Delete", [] { PaintLayerCommand(&SculptMeshObject::DeletePaintLayer); }, {}, PaintLayerSelected, {}},
+               {L"Clear", [] { PaintLayerCommand(&SculptMeshObject::ClearPaintLayer); }, {}, PaintLayerSelected, {}},
+               {L"Clear All", [] { PaintLayerCommand(&SculptMeshObject::ClearAllPaintLayers); }, {}, hasLayers, {}}},
+              shown);
+    r.Buttons({{L"Move Up", [] { if (Edited()) Edited()->MovePaintLayer(1); RedrawViewports(); }, {},
+                [] { return PaintLayerSelected() && ActivePaintLayer() + 1 < PaintLayerCount(); }, {}},
+               {L"Move Down", [] { if (Edited()) Edited()->MovePaintLayer(-1); RedrawViewports(); }, {},
+                [] { return PaintLayerSelected() && ActivePaintLayer() > 0; }, {}},
+               {L"Bake All", [] { PaintLayerCommand(&SculptMeshObject::MergePaintLayers); }, {}, hasLayers, {}}},
+              shown);
+    r.List(
+        [] { return PaintLayerCount(); },
+        [](int row) {
+            const sculpt::PaintLayer& layer = PaintCanvasOf()->layers()[static_cast<std::size_t>(PaintLayerCount() - 1 - row)];
+            const wchar_t* blends[] = {L"Normal", L"Multiply", L"Screen", L"Overlay", L"Add", L"Subtract"};
+            wchar_t text[200];
+            swprintf(text, 200, L"%ls%ls   %d%%  %ls", Widen(layer.name).c_str(), layer.enabled ? L"" : L"  (off)",
+                     static_cast<int>(std::lround(layer.opacity * 100.0f)), blends[std::min(std::max(static_cast<int>(layer.blend), 0), 5)]);
+            return std::wstring(text);
+        },
+        [] { return ActivePaintLayer() < 0 ? -1 : PaintLayerCount() - 1 - ActivePaintLayer(); },
+        [](int row) { if (Edited()) Edited()->SelectPaintLayer(row < 0 ? -1 : PaintLayerCount() - 1 - row); }, shown,
+        [](int, POINT screen) { PaintLayerMenu(screen); });
+    r.Note([] { return std::wstring(L"Strokes paint into the base texture (select a layer to paint on it)"); },
+           [] { return PaintLayersShown() && ActivePaintLayer() < 0 && Edited() && Edited()->Canvas(); });
+    r.Text(L"Name", [] { return SelectedPaintLayer() ? Widen(SelectedPaintLayer()->name) : std::wstring(); },
+           [](const std::wstring& name) { if (Edited()) Edited()->SetPaintLayerName(ActivePaintLayer(), Narrow(name)); },
+           PaintLayerSelected);
+    r.Check(L"Layer Enabled", [] { return SelectedPaintLayer() && SelectedPaintLayer()->enabled; },
+            [](bool on) {
+                if (Edited()) Edited()->SetPaintLayerEnabled(ActivePaintLayer(), on);
+                RedrawViewports();
+            },
+            PaintLayerSelected);
+    RowList::SliderSpec opacity;
+    opacity.label = L"Opacity";
+    opacity.get = [] { return SelectedPaintLayer() ? SelectedPaintLayer()->opacity : 1.0f; };
+    opacity.set = [](float v) {
+        if (Edited()) Edited()->SetPaintLayerOpacityLive(ActivePaintLayer(), v);
+        if (Interface* core = GetCOREInterface()) core->RedrawViews(core->GetTime(), REDRAW_INTERACTIVE);
+    };
+    opacity.released = [] { if (Edited()) Edited()->FinishPaintLayerOpacity(); };
+    opacity.min = 0.0f;
+    opacity.max = 1.0f;
+    opacity.typeMax = 1.0f;
+    opacity.defaultValue = 1.0f;
+    opacity.format = [](float v) { return std::to_wstring(static_cast<int>(std::lround(v * 100.0f))) + L"%"; };
+    r.Slider(opacity, PaintLayerSelected);
+    r.Choice(L"Blend", {L"Normal", L"Multiply", L"Screen", L"Overlay", L"Add", L"Subtract"},
+             [] { return SelectedPaintLayer() ? static_cast<int>(SelectedPaintLayer()->blend) : 0; },
+             [](int i) {
+                 if (Edited()) Edited()->SetPaintLayerBlend(ActivePaintLayer(), static_cast<sculpt::PaintBlend>(i));
+                 RedrawViewports();
+             },
+             PaintLayerSelected);
+    r.Buttons({{L"Adjust / Import...", [] {
+                    POINT p;
+                    GetCursorPos(&p);
+                    PaintLayerMenu(p);
+                }, {}, PaintLayerSelected, {}}},
+              shown);
+}
+
 class PanelWindow : public FloatingWindow {
 public:
     PanelWindow() {
@@ -733,13 +982,14 @@ private:
                 const wchar_t* names[] = {L"Paint Mask", L"Rectangle Mask", L"Lasso Mask"};
                 return std::wstring(names[std::min(std::max(S().Int(Prop::MaskTool), 0), 2)]);
             }
+            if (PaintContext()) return L"Paint: " + Widen(paintToolName(S().Int(Prop::PaintTool)));
             return BrushName(S().Brush());
         });
         r.Buttons({{L"Add", [] { S().SetBrushValue(ContextBrush(), BrushProp::Subtract, 0.0f); },
                     [] { return S().BrushValue(ContextBrush(), BrushProp::Subtract) == 0.0f; }, {}},
                    {L"Sub", [] { S().SetBrushValue(ContextBrush(), BrushProp::Subtract, 1.0f); },
                     [] { return S().BrushValue(ContextBrush(), BrushProp::Subtract) != 0.0f; }, {}}},
-                  [] { return BrushContext() && sculpt::isSignedBrush(ContextBrush()); });
+                  [] { return SculptContext() && sculpt::isSignedBrush(ContextBrush()); });
         r.Note(
             [] {
                 if (Is(BrushType::Clip))
@@ -756,8 +1006,21 @@ private:
             });
         r.Slider(PropSlider(L"Brush Size", Prop::BrushSize, 1, 500.0f, true), SizeContext);
         r.Slider(StrengthSlider(), StrengthContext);
+        // Paint tools: Opacity and Hardness instead of Brush Strength.
+        r.Slider(PropSlider(L"Opacity", Prop::PaintOpacity, 2), PaintContext);
+        r.Slider(PropSlider(L"Hardness", Prop::PaintHardness, 2),
+                 [] { return PaintContext() && !PaintToolIs(sculpt::PaintTool::Fill) && !PaintToolIs(sculpt::PaintTool::Gradient); });
+        r.Slider(PropSlider(L"Blur Strength", Prop::PaintBlurStrength, 2), [] { return PaintToolIs(sculpt::PaintTool::Blur); });
+        r.Note([] { return std::wstring(L"Shift: Blur \x2022 Alt: erase \x2022 Ctrl: mask"); },
+               [] { return PaintToolIs(sculpt::PaintTool::Paint); });
+        r.Note([] { return std::wstring(L"Click the mesh to fill the active layer"); }, [] { return PaintToolIs(sculpt::PaintTool::Fill); });
+        r.Note([] { return std::wstring(L"Drag across the mesh: Color A \x2192 Color B"); },
+               [] { return PaintToolIs(sculpt::PaintTool::Gradient); });
         AddBrushCheck(r, L"Layer Mode", BrushProp::LayerMode,
-                      [] { return BrushContext() && sculpt::brushInfo(ContextBrush()).supportsLayerMode; });
+                      [] { return SculptContext() && sculpt::brushInfo(ContextBrush()).supportsLayerMode; });
+        r.Slider(PropSlider(L"Height Mid", Prop::DisplaceHeightMid, 2), [] { return Is(BrushType::Displace); });
+        r.Slider(PropSlider(L"Displace Fade", Prop::DisplaceFade, 2), [] { return Is(BrushType::Displace); });
+        r.Note([] { return std::wstring(L"Uses the stencil as height \x2022 Alt reverses"); }, [] { return Is(BrushType::Displace); });
         r.Slider(PropSlider(L"Stroke Spacing", Prop::StrokeSpacing, 2, 1.0f), DabContext);
         r.Slider(PropSlider(L"Alpha Mid", Prop::AlphaMid, 2), [] { return DabContext() && AlphaActive(); });
         r.Slider(PropSlider(L"Alpha Fade", Prop::AlphaFade, 2), [] { return DabContext() && AlphaActive(); });
@@ -773,6 +1036,7 @@ private:
         r.Slider(PropSlider(L"Scatter Radius", Prop::ScatterRadius, 2), ScatterContext);
         r.Slider(PropSlider(L"Size Jitter", Prop::SizeJitter, 2), ScatterContext);
         r.Slider(PropSlider(L"Amount Jitter", Prop::AmountJitter, 2), ScatterContext);
+        r.Slider(PropSlider(L"Color Jitter A/B", Prop::PaintColorJitter, 2), [] { return ScatterContext() && PaintContext(); });
         // Cloth.
         const auto cloth = [] { return Is(BrushType::Cloth); };
         r.Slider(PropSlider(L"Cloth Iterations", Prop::ClothIterations, 0, 20.0f), cloth);
@@ -820,11 +1084,32 @@ private:
         AddPropCheck(r, L"Follow Path", Prop::FollowPath, DabContext);
         AddPropCheck(r, L"Lazy Mouse", Prop::LazyMouse, DabContext);
         r.Slider(PropSlider(L"Lazy Amount", Prop::LazyAmount, 2), [] { return DabContext() && S().Bool(Prop::LazyMouse); });
-        AddBrushCheck(r, L"Backface Cull", BrushProp::BackfaceCull, [] { return StrengthContext() || Is(BrushType::Cloth); });
+        AddBrushCheck(r, L"Backface Cull", BrushProp::BackfaceCull,
+                      [] { return (StrengthContext() || Is(BrushType::Cloth) || MaskDirect()) && !PaintContext(); });
 
         r.Section(L"Material / Paint", false);
         AddPropCheck(r, L"Use Sculpt Material Preview", Prop::SculptMaterialPreview);
+        r.Choice(L"Paint Source", {L"Generated Texture", L"Existing Diffuse Texture"}, [] { return S().Int(Prop::PaintSource); },
+                 [](int i) { S().Set(Prop::PaintSource, static_cast<float>(i)); });
+        r.Choice(L"Resolution", {L"512", L"1024", L"2048", L"4096"}, [] { return S().Int(Prop::PaintResolution); },
+                 [](int i) { S().Set(Prop::PaintResolution, static_cast<float>(i)); }, [] { return S().Int(Prop::PaintSource) == 0; });
         r.Colors(GetColor, SetColor, SwapColors);
+        const auto painted = [] { return Edited() && Edited()->Canvas(); };
+        r.Buttons({{L"Save", [] { SculptCommands::SavePaintTexture(false); }, {}, painted, {}},
+                   {L"Save As", [] { SculptCommands::SavePaintTexture(true); }, {}, painted, {}}});
+        r.Buttons({{L"Replace Texture", [] { SculptCommands::ReplacePaintTexture(); }, {}, {}, {}},
+                   {L"Restore Material", [] { SculptCommands::RestoreMaterial(); }, {},
+                    [] { return Edited() && Edited()->HasOriginalMaterial(); }, {}}});
+        r.Note([] { return Edited() ? std::wstring(Edited()->PaintStatus().data()) : std::wstring(); });
+        r.Buttons({{L"Load Stencil", [] { SculptCommands::LoadStencil(); }, {}, {}, {}},
+                   {L"\x21BA", [] { SculptCommands::ResetStencil(); }, {}, [] { return Stencil::Get().Loaded(); }, {}},
+                   {L"\x2715", [] { SculptCommands::ClearStencil(); }, {}, [] { return Stencil::Get().Loaded(); }, {}}});
+        RowList::SliderSpec stencilOpacity = PropSlider(L"Stencil Opacity", Prop::StencilOpacity, 2);
+        stencilOpacity.format = [](float v) { return std::to_wstring(static_cast<int>(std::lround(v * 100.0f))) + L"%"; };
+        r.Slider(stencilOpacity, [] { return Stencil::Get().Loaded(); });
+        r.Choice(L"Stencil Paints", {L"Its Colours", L"Color A (mask)"}, [] { return S().Int(Prop::StencilMode); },
+                 [](int i) { S().Set(Prop::StencilMode, static_cast<float>(i)); }, [] { return Stencil::Get().Loaded(); });
+        r.Note([] { return std::wstring(L"Hold S: LMB rotate \x2022 RMB scale \x2022 MMB move"); }, [] { return Stencil::Get().Loaded(); });
 
         r.Section(L"Mask", false);
         r.Buttons({{L"Mask by Cavity", [] { RunOp(Op::MaskByCavity); }, {}, {}}});
@@ -868,23 +1153,30 @@ private:
                     [] { return S().Bool(Prop::ProfileUse) && S().Int(Prop::ProfileTarget) == 1; }, {}}});
 
         r.Section(L"Layers", true);
+        // Tabs: switching also routes Sculpt Mesh into that working mode.
+        r.Buttons({{L"Sculpt", [] { SculptCommands::SelectSculptMode(); }, [] { return !PaintLayersShown(); }, {}, {}},
+                   {L"Paint", [] { SculptCommands::SelectPaintMode(); }, [] { return PaintLayersShown(); }, {}, {}}});
+        BuildPaintLayers(r);
+        const auto sculptLayers = [] { return !PaintLayersShown(); };
         r.Note(
             [] {
                 wchar_t text[96];
                 swprintf(text, 96, L"Layers live on level %d", Edited() ? Edited()->LayersLevel() : 0);
                 return std::wstring(text);
             },
-            [] { return Edited() && !Edited()->LayersUsable(); });
+            [] { return !PaintLayersShown() && Edited() && !Edited()->LayersUsable(); });
         r.Buttons({{L"New", [] { LayerCommand(&SculptMeshObject::NewLayer); }, {}, LayersEditable, {}},
                    {L"Delete", [] { LayerCommand(&SculptMeshObject::DeleteLayer); }, {}, LayerSelected, {}},
                    {L"Clear", [] { LayerCommand(&SculptMeshObject::ClearLayer); }, {}, LayerSelected, {}},
                    {L"Clear All", [] { LayerCommand(&SculptMeshObject::ClearAllLayers); }, {},
-                    [] { return LayersEditable() && !Edited()->Layers().empty(); }, {}}});
+                    [] { return LayersEditable() && !Edited()->Layers().empty(); }, {}}},
+                  sculptLayers);
         r.Buttons({{L"Move Up", [] { if (Edited()) Edited()->MoveLayer(-1); }, {}, [] { return LayerSelected() && ActiveLayer() > 0; }, {}},
                    {L"Move Down", [] { if (Edited()) Edited()->MoveLayer(1); }, {},
                     [] { return LayerSelected() && ActiveLayer() + 1 < static_cast<int>(Edited()->Layers().layers.size()); }, {}},
                    {L"Bake All", [] { LayerCommand(&SculptMeshObject::BakeAllLayers); }, {},
-                    [] { return LayersEditable() && !Edited()->Layers().empty(); }, {}}});
+                    [] { return LayersEditable() && !Edited()->Layers().empty(); }, {}}},
+                  sculptLayers);
         r.List(
             [] { return Edited() ? static_cast<int>(Edited()->Layers().layers.size()) : 0; },
             [](int i) {
@@ -894,15 +1186,16 @@ private:
                          static_cast<double>(layer.strength));
                 return std::wstring(text);
             },
-            ActiveLayer, [](int i) { if (Edited()) Edited()->SelectLayer(i); });
+            ActiveLayer, [](int i) { if (Edited()) Edited()->SelectLayer(i); }, sculptLayers);
         r.Text(L"Name", [] { return SelectedLayer() ? Widen(SelectedLayer()->name) : std::wstring(); },
-               [](const std::wstring& name) { if (Edited()) Edited()->SetLayerName(ActiveLayer(), Narrow(name)); }, LayerSelected);
+               [](const std::wstring& name) { if (Edited()) Edited()->SetLayerName(ActiveLayer(), Narrow(name)); },
+               [] { return !PaintLayersShown() && LayerSelected(); });
         r.Check(L"Layer Enabled", [] { return SelectedLayer() && SelectedLayer()->enabled; },
                 [](bool on) {
                     if (Edited()) Edited()->SetLayerEnabled(ActiveLayer(), on);
                     if (Interface* core = GetCOREInterface()) core->RedrawViews(core->GetTime());
                 },
-                LayerSelected);
+                [] { return !PaintLayersShown() && LayerSelected(); });
         RowList::SliderSpec strength;
         strength.label = L"Strength";
         strength.get = [] { return SelectedLayer() ? SelectedLayer()->strength : 1.0f; };
@@ -922,7 +1215,7 @@ private:
             swprintf(text, 32, L"%.2fx", static_cast<double>(v));
             return std::wstring(text);
         };
-        r.Slider(strength, LayerSelected);
+        r.Slider(strength, [] { return !PaintLayersShown() && LayerSelected(); });
 
         r.Section(L"Surface Snapshot", false);
         r.Buttons({{L"Capture Surface", [] { SculptCommands::CaptureSurface(); }, {}, {}, {}},
@@ -1248,6 +1541,9 @@ public:
         showMask_ = S().Bool(Prop::ShowMask);
         showGroups_ = S().Bool(Prop::ShowGroups);
         preview_ = S().Bool(Prop::SculptMaterialPreview);
+        mode_ = S().Int(Prop::ToolMode);
+        stencilOpacity_ = S().Value(Prop::StencilOpacity);
+        resolution_ = S().Int(Prop::PaintResolution);
     }
 
     void OnSculptSettingsChanged() override {
@@ -1256,10 +1552,27 @@ public:
         if (SculptMeshObject* object = SculptMeshObject::EditedObject()) {
             if (S().Bool(Prop::ShowMask) != showMask_ || S().Bool(Prop::ShowGroups) != showGroups_)
                 object->RefreshDisplayOptions();
-            if (S().Bool(Prop::SculptMaterialPreview) != preview_ && SculptMode::Get().Target() == object &&
-                SculptMode::Get().IsActive())
+            const bool sculpting = SculptMode::Get().Target() == object && SculptMode::Get().IsActive();
+            if (S().Int(Prop::ToolMode) != mode_ && sculpting) {
+                // Paint mode shows the paint texture; it needs the canvas and UVs first.
+                if (S().Mode() == ToolMode::Paint) {
+                    MSTR error;
+                    if (!object->AcquirePaint(error) && error.Length() > 0) SculptCommands::Prompt(error.data());
+                }
+                object->SetFastDisplay(true);
+                object->RefreshDisplayOptions();
+            } else if (S().Bool(Prop::SculptMaterialPreview) != preview_ && sculpting) {
                 object->SetFastDisplay(S().Bool(Prop::SculptMaterialPreview));
+            }
+            if (S().Int(Prop::PaintResolution) != resolution_ && S().Int(Prop::PaintSource) == 0) {
+                const int sizes[] = {512, 1024, 2048, 4096};
+                MSTR error;
+                if (!object->ResizePaintTexture(sizes[std::min(std::max(S().Int(Prop::PaintResolution), 0), 3)], error) &&
+                    error.Length() > 0)
+                    SculptCommands::Prompt(error.data());
+            }
         }
+        if (S().Value(Prop::StencilOpacity) != stencilOpacity_) Stencil::Get().Refresh();
         CacheDisplayState();
         SculptMode::Get().RefreshCursor();
     }
@@ -1268,6 +1581,9 @@ private:
     bool showMask_ = true;
     bool showGroups_ = false;
     bool preview_ = true;
+    int mode_ = 1;
+    float stencilOpacity_ = 0.5f;
+    int resolution_ = 2;
 };
 
 Manager& M() {
@@ -1339,6 +1655,8 @@ void ShowAlphasPage() {
 }
 
 void Shutdown() {
+    if (Adjust().Visible()) Adjust().Finish(false);
+    Adjust().Destroy();
     if (M().created) M().Destroy();
     M().editing = false;
 }

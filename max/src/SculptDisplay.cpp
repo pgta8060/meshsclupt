@@ -82,28 +82,62 @@ void SculptDisplay::FillLookupTexture() {
     lookup_.WriteOnlyUnlockRectangle();
 }
 
-void SculptDisplay::SetOptions(const Options& options) {
-    if (options == options_) return;
+bool SculptDisplay::SetOptions(const Options& options) {
+    if (options == options_) return false;
+    const bool rebuild = options.paint != options_.paint;
     options_ = options;
-    if (IsBuilt()) FillLookupTexture();
+    if (IsBuilt() && !rebuild) FillLookupTexture();
+    return rebuild;
+}
+
+void SculptDisplay::UploadPaint() {
+    if (!paintShown_ || !paintSource_.valid()) return;
+    const sculpt::Image& image = *paintSource_.image;
+    if (image.width != paintWidth_ || image.height != paintHeight_) {  // Resolution changed.
+        paintTexture_.Initialize(static_cast<size_t>(image.width), static_cast<size_t>(image.height), TargetFormatA8R8G8B8);
+        paintWidth_ = image.width;
+        paintHeight_ = image.height;
+        clay_.SetDiffuseTexture(paintTexture_);
+    }
+    LockedRect rect;
+    if (!paintTexture_.WriteOnlyLockRectangle(0, rect, nullptr) || !rect.pBits) return;
+    for (int y = 0; y < image.height; ++y) {
+        unsigned char* line = rect.pBits + static_cast<std::size_t>(y) * rect.pitch;
+        const std::uint8_t* source = image.pixel(0, y);
+        for (int x = 0; x < image.width; ++x) {  // A8R8G8B8 in memory order B, G, R, A.
+            line[4 * x + 0] = source[4 * x + 2];
+            line[4 * x + 1] = source[4 * x + 1];
+            line[4 * x + 2] = source[4 * x + 0];
+            line[4 * x + 3] = 255;
+        }
+    }
+    paintTexture_.WriteOnlyUnlockRectangle();
 }
 
 void SculptDisplay::Build(const sculpt::SculptSession& session, const Options& options) {
     Clear();
     options_ = options;
     const sculpt::Mesh& mesh = session.mesh();
+    paintShown_ = options_.paint && paintSource_.valid();
+    // Paint: vertices split along UV seams; otherwise per SculptGroup.
     chunks_.build(mesh, sculpt::DisplayChunks::kDefaultTrianglesPerChunk,
-                  session.anyHidden() ? &session.hiddenFaces() : nullptr, &session.faceGroups());
+                  session.anyHidden() ? &session.hiddenFaces() : nullptr, paintShown_ ? nullptr : &session.faceGroups(),
+                  paintShown_ ? paintSource_.cornerKeys : nullptr);
 
     lookup_.Initialize(kLookupWidth, kLookupRows, TargetFormatA8R8G8B8);
     FillLookupTexture();
     clay_.Initialize();
-    clay_.SetDiffuse(AColor(1.0f, 1.0f, 1.0f, 1.0f));  // Colour comes from the lookup texture.
+    clay_.SetDiffuse(AColor(1.0f, 1.0f, 1.0f, 1.0f));  // Colour comes from the lookup / paint texture.
     clay_.SetAmbient(AColor(0.12f, 0.12f, 0.12f, 1.0f));
-    clay_.SetSpecular(AColor(0.35f, 0.35f, 0.35f, 1.0f));
+    clay_.SetSpecular(AColor(paintShown_ ? 0.12f : 0.35f, paintShown_ ? 0.12f : 0.35f, paintShown_ ? 0.12f : 0.35f, 1.0f));
     clay_.SetSpecularPower(18.0f);
     clay_.SetOpacity(1.0f);
-    clay_.SetDiffuseTexture(lookup_);
+    if (paintShown_) {
+        paintWidth_ = paintHeight_ = 0;  // UploadPaint creates the texture at the image size.
+        UploadPaint();
+    } else {
+        clay_.SetDiffuseTexture(lookup_);
+    }
 
     // Match the material's stream requirements; anything we do not produce
     // (should not happen for this material) gets the attribute stream.
@@ -188,10 +222,19 @@ void SculptDisplay::Upload(const sculpt::SculptSession& session) {
             const sculpt::Vec3& p = mesh.normal(chunk.vertices[i]);
             return Point3(p.x, p.y, p.z);
         });
-        WriteVec3(gpu_[c].attributes, n, [&](std::size_t i) {
-            const std::uint32_t v = chunk.vertices[i];
-            return Point3(MaskU(v < mask.size() ? mask[v] : 0.0f), GroupRowV(chunk.groups[i]), 0.0f);
-        });
+        if (paintShown_ && chunk.keys.size() == n) {
+            const std::vector<sculpt::Vec3>& uvs = *paintSource_.keyUVs;
+            WriteVec3(gpu_[c].attributes, n, [&](std::size_t i) {
+                const std::uint32_t key = chunk.keys[i];
+                if (key >= uvs.size()) return Point3(0.0f, 0.0f, 0.0f);
+                return Point3(uvs[key].x, 1.0f - uvs[key].y, 0.0f);  // Texture row 0 is the top (v = 1).
+            });
+        } else {
+            WriteVec3(gpu_[c].attributes, n, [&](std::size_t i) {
+                const std::uint32_t v = chunk.vertices[i];
+                return Point3(MaskU(v < mask.size() ? mask[v] : 0.0f), GroupRowV(chunk.groups[i]), 0.0f);
+            });
+        }
     }
 }
 

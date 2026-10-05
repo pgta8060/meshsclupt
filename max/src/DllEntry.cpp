@@ -10,6 +10,7 @@
 #include "SculptMeshPlugin.h"
 #include "SculptMode.h"
 #include "SculptUI.h"
+#include "Stencil.h"
 #include "sculpt/parallel.h"
 
 HINSTANCE hInstance = nullptr;
@@ -27,6 +28,7 @@ void OnStartup(void* /*param*/, NotifyInfo* /*info*/) { SculptCommands::LoadSett
 void OnShutdown(void* /*param*/, NotifyInfo* /*info*/) {
     SculptMode::Get().Stop();
     SculptCommands::SaveSettings();
+    Stencil::Get().Clear();  // Removes its mouse hook and window.
     SculptUI::Shutdown();
 }
 

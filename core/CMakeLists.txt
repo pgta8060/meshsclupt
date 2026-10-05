@@ -8,6 +8,7 @@ add_library(SculptCore STATIC
   src/layers.cpp
   src/mesh.cpp
   src/multires.cpp
+  src/paint.cpp
   src/parallel.cpp
   src/poly.cpp
   src/remesh.cpp
@@ -36,6 +37,7 @@ if(SCULPT_BUILD_TESTS)
     tests/test_math.cpp
     tests/test_mesh.cpp
     tests/test_multires.cpp
+    tests/test_paint.cpp
     tests/test_remesh.cpp
     tests/test_session.cpp
     tests/test_stroke.cpp

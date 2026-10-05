@@ -37,7 +37,7 @@ enum class BrushType : int {
     Cloth = 20,             // Cloth simulation under the brush (host gesture).
     Pose = 21,              // Rotate/twist/scale around a guide (host gesture).
     CurveTube = 22,         // Live tube along a curve (host gesture).
-    Displace = 23,          // (later phase)
+    Displace = 23,          // Stencil as height (host supplies the stencil).
     MaskPaint = 24,         // Mask tool (not shown in the brush palette).
     Count
 };

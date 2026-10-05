@@ -350,13 +350,21 @@ void SculptMode::DragTool(HWND hwnd, IPoint2 m, int /*flags*/) {
         case Gesture::Tube:
             TubeDrag(vpt, m);
             break;
+        case Gesture::Gradient:
+            DragGradient(vpt, m);
+            break;
         default:
             break;
     }
 }
 
-void SculptMode::ReleaseTool(HWND /*hwnd*/, IPoint2 /*m*/, int /*flags*/) {
+void SculptMode::ReleaseTool(HWND hwnd, IPoint2 m, int /*flags*/) {
     switch (gesture_) {
+        case Gesture::Gradient: {
+            ViewExp& vpt = ip_->GetViewExp(hwnd);
+            if (vpt.IsAlive()) ApplyGradient(vpt, m);
+            break;
+        }
         case Gesture::Cut:
             gesture_ = Gesture::None;
             overlay_.Hide();

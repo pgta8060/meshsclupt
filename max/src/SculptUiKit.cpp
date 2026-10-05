@@ -200,6 +200,77 @@ std::vector<std::uint32_t> RenderBrushIcon(sculpt::BrushType b, int size, COLORR
     return pixels;
 }
 
+// Paint palette icons (0 Paint .. 5 Gradient): flat swatches on a rounded tile.
+std::vector<std::uint32_t> RenderPaintIcon(int tool, int size, COLORREF background) {
+    std::vector<std::uint32_t> pixels(static_cast<std::size_t>(size) * size);
+    const float bg[3] = {GetRValue(background) / 255.0f, GetGValue(background) / 255.0f, GetBValue(background) / 255.0f};
+    const float half = size * 0.5f;
+    for (int y = 0; y < size; ++y) {
+        for (int x = 0; x < size; ++x) {
+            const float u = (static_cast<float>(x) + 0.5f - half) / half;  // -1..1
+            const float v = (static_cast<float>(y) + 0.5f - half) / half;
+            // Tile with rounded corners.
+            const float qx = std::max(std::fabs(u) - 0.62f, 0.0f), qy = std::max(std::fabs(v) - 0.62f, 0.0f);
+            const float tile = std::min(std::max((0.3f - std::sqrt(qx * qx + qy * qy)) * half + 0.5f, 0.0f), 1.0f);
+            float c[3] = {0.93f, 0.92f, 0.9f};
+            float a = 0.0f;  // Coverage of the tool's mark.
+            float mark[3] = {0.85f, 0.25f, 0.2f};
+            const float r = std::sqrt(u * u + v * v);
+            switch (tool) {
+                case 0:  // Paint: a soft round stroke.
+                    a = 1.0f - Smoothstep(0.25f, 0.55f, std::sqrt((u + 0.15f) * (u + 0.15f) * 0.6f + (v - 0.1f) * (v - 0.1f) * 1.6f));
+                    break;
+                case 1: {  // Smudge: a dot smeared to the right.
+                    const float t = Smoothstep(-0.6f, 0.7f, u);
+                    a = (1.0f - Smoothstep(0.12f, 0.35f + 0.15f * t, std::fabs(v))) * (1.0f - t * 0.85f) *
+                        (1.0f - Smoothstep(0.6f, 0.75f, std::fabs(u)));
+                    break;
+                }
+                case 2:  // Fill: the whole swatch.
+                    a = 1.0f - Smoothstep(0.5f, 0.56f, std::max(std::fabs(u), std::fabs(v)));
+                    mark[0] = 0.25f;
+                    mark[1] = 0.55f;
+                    mark[2] = 0.85f;
+                    break;
+                case 3:  // Blur: a very soft dot.
+                    a = std::exp(-r * r / 0.18f);
+                    mark[0] = 0.35f;
+                    mark[1] = 0.6f;
+                    mark[2] = 0.9f;
+                    break;
+                case 4: {  // Erase: checkerboard showing through a cleared band.
+                    const bool check = ((static_cast<int>((u + 1.0f) * 4.0f) + static_cast<int>((v + 1.0f) * 4.0f)) & 1) != 0;
+                    const float band = 1.0f - Smoothstep(0.18f, 0.24f, std::fabs(u + v) * 0.7071f);
+                    for (int k = 0; k < 3; ++k) c[k] = check ? 0.75f : 0.95f;
+                    a = (1.0f - band) * (1.0f - Smoothstep(0.5f, 0.56f, std::max(std::fabs(u), std::fabs(v))));
+                    mark[0] = 0.85f;
+                    mark[1] = 0.5f;
+                    mark[2] = 0.3f;
+                    break;
+                }
+                case 5: {  // Gradient: Color A to Color B.
+                    a = 1.0f - Smoothstep(0.5f, 0.56f, std::max(std::fabs(u), std::fabs(v)));
+                    const float t = std::min(std::max((u + 0.55f) / 1.1f, 0.0f), 1.0f);
+                    mark[0] = 0.9f + (0.2f - 0.9f) * t;
+                    mark[1] = 0.3f + (0.4f - 0.3f) * t;
+                    mark[2] = 0.2f + (0.9f - 0.2f) * t;
+                    break;
+                }
+                default:
+                    break;
+            }
+            float out[3];
+            for (int k = 0; k < 3; ++k) {
+                const float inside = c[k] + (mark[k] - c[k]) * std::min(std::max(a, 0.0f), 1.0f);
+                out[k] = bg[k] + (inside - bg[k]) * tile;
+            }
+            const auto to8 = [](float f) { return static_cast<std::uint32_t>(std::lround(std::min(std::max(f, 0.0f), 1.0f) * 255.0f)); };
+            pixels[static_cast<std::size_t>(y) * size + x] = (to8(out[0]) << 16) | (to8(out[1]) << 8) | to8(out[2]);
+        }
+    }
+    return pixels;
+}
+
 std::map<std::tuple<int, int, COLORREF>, std::vector<std::uint32_t>>& IconCache() {
     static std::map<std::tuple<int, int, COLORREF>, std::vector<std::uint32_t>> cache;
     return cache;
@@ -428,6 +499,16 @@ void DrawGlyph(HDC dc, const RECT& r, Glyph glyph, COLORREF color) {
     SelectObject(dc, oldBrush);
     DeleteObject(pen);
     DeleteObject(dotted);
+}
+
+void DrawPaintIcon(HDC dc, const RECT& r, int tool, COLORREF background) {
+    const int size = std::min(r.right - r.left, r.bottom - r.top);
+    if (size <= 2) return;
+    auto& cache = IconCache();
+    const auto key = std::make_tuple(1000 + tool, size, background);  // Brush icons use 0..Count.
+    auto it = cache.find(key);
+    if (it == cache.end()) it = cache.emplace(key, RenderPaintIcon(tool, size, background)).first;
+    DrawPixels(dc, r.left + (r.right - r.left - size) / 2, r.top + (r.bottom - r.top - size) / 2, size, size, it->second.data());
 }
 
 void DrawBrushIcon(HDC dc, const RECT& r, sculpt::BrushType brush, COLORREF background) {
@@ -744,7 +825,7 @@ void RowList::Note(std::function<std::wstring()> text, Visible visible) {
 }
 
 void RowList::List(std::function<int()> count, std::function<std::wstring(int)> item, std::function<int()> selected,
-                   std::function<void(int)> select, Visible visible) {
+                   std::function<void(int)> select, Visible visible, std::function<void(int, POINT)> context) {
     Row row;
     row.kind = Kind::List;
     row.count = std::move(count);
@@ -752,6 +833,7 @@ void RowList::List(std::function<int()> count, std::function<std::wstring(int)> 
     row.selected = std::move(selected);
     row.select = std::move(select);
     row.visible = std::move(visible);
+    row.context = std::move(context);
     Add(std::move(row));
 }
 
@@ -1182,6 +1264,17 @@ bool RowList::RightClick(HWND host, int x, int y, int scroll) {
     if (index < 0) return false;
     const Row& row = rows_[static_cast<std::size_t>(index)];
     if (row.kind == Kind::Custom) return row.custom.rightClick && row.custom.rightClick(host, r, x, y);
+    if (row.kind == Kind::List && row.context) {
+        const int n = row.count ? row.count() : 0;
+        const int i = (y - (r.top + Px(3))) / ListItemHeight();
+        if (i < 0 || i >= n) return false;
+        if (row.select && (!row.selected || row.selected() != i)) row.select(i);
+        POINT p = {x, y};
+        ClientToScreen(host, &p);
+        if (GetCapture() == host) ReleaseCapture();
+        row.context(i, p);
+        return true;
+    }
     if (row.kind != Kind::Slider || !row.slider.set) return false;
     row.slider.set(row.slider.defaultValue);  // Like 3ds Max spinners: right-click resets.
     if (row.slider.released) row.slider.released();
