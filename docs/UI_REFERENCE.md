@@ -8,7 +8,7 @@
 - **الـ palette اللي تحت:** تابات `Sculpting | Paint | Alphas` (و `Meshes` بعدين)، وفيها أيقونات الفرش المدورة واسم كل فرشة تحتها.
   ترتيب الفرش في الصورة: Sculpt، Clay Buildup، Move، Crease، Polish، Scrape، Smooth، Clay، Clip، Bulge، Snake Hook، Cloth، Pose، Curve Tube، Knife، Slice، Flatten، Pinch، Inflate، Smooth SG Border، Trim…
 - **rollouts عائمة على اليمين:** Brush Settings، و Material / Paint، و Mask، و Mirror، و Profile، و Surface Snapshot، و Layers.
-- **الـ Modify panel:** فيه `MeshSculpt` في الـ stack، وتحته rollout اسمه **Parameters** فيه: `Close MeshSculpt UI`، و `Reverse Subdivision`، و `Del Lower` | `Del Higher`، و `Level: 4 / 4` مع slider، و `Subdivide Level`، و `Materials ID`، و `Smoothing Groups`. بعده rollouts `Remesh` و `Bake Maps`.
+- **الـ Modify panel:** في أول صور كان فيه `MeshSculpt` في الـ stack وتحته rollout اسمه **Parameters**. في آخر صور الاسم بقى **Sculpt Mesh**، والـ rollouts بقت **Multires** و **Deformers / Tools** و **Remesh** (التفاصيل تحت). المعتمد هو آخر صور.
 - **دايرة الفرشاة:** حمرا، ودايرتين جوه بعض (الحافة الخارجية ودايرة داخلية).
 
 ## Brush Settings
@@ -42,3 +42,19 @@
 ## صور تانية
 - الـ Alphas palette: الأول No Alpha، بعده 4 alphas مدمجين (ناعم وحاد ومربع)، وبعدين زخارف نباتية (المكتبة الخاصة).
 - مثال Cutter: كرة فيها قطع دايري نضيف، وحواف القطع متقفلة بشريط مثلثات.
+
+## آخر مجموعة صور (الماسك، والـ Quick Menu، والـ Modify panel)
+- **Mask flyout:** أيقونات Paint Mask و Rectangle و Lasso، والأداة المختارة منوّرة.
+- **Quick Menu:** مربع ألوان (Saturation / Value) وجنبه شريط Hue رأسي، وبعده Color A وزرار ⇄ و Color B. وتحتهم Brush Size (12.50) و Brush Strength (1.00)، وبعدين ☐ Use Alpha Texture، و ☑ Use Falloff، و ☑ Follow Path، و ☑ Backface Cull.
+- **Multires:** زرار `Open Sculpt Mesh Menus` / `Close Sculpt Mesh Menus`، وبعده باقي أدوات المستويات (المرحلة 7).
+- **Deformers / Tools** (المرحلة 11): `Repeat Last Stroke` وجنبه رقم (1)، و `Close Holes` | `Extract`، و `Attach` | `Detach`، و sliders لـ Smooth Surface و Thickness و Gravity و FOV، و `Bevel Round` | `Chamfer`، و Projection: `Pick Mesh` وجنبه رقم (3.00).
+- **Remesh** (المرحلة 11): `Voxelize Mesh` وجنبه الدقة (256)، و `Retopology` وجنبه عدد الـ polygons (2000).
+- **خانة الـ Alpha في الشريط الشمال:** بتعرض الـ alpha المختار، ولو مفيش بتقول إن مفيش alpha.
+
+## اللي اتنفذ لحد المرحلة 6
+- الشريط الشمال: Select، و Sculpt/Paint (الـ Paint ظاهر بس مقفول لحد المرحلة 10)، و Mask، و Stroke Mode (الـ Color Mix مقفول لحد المرحلة 10)، والـ Alpha.
+- الـ palette: تاب **Sculpting** وتاب **Alphas**. تابات Paint و Meshes هتظهر مع مراحلهم (10 و 12).
+- الـ rollouts العائمة: **Brush Settings** و **Material / Paint** و **Mask** و **Mirror**. وهيتضاف Profile و Surface Snapshot و Layers مع مراحلهم.
+- الـ Quick Menu زي الصورة بالظبط. الألوان بتتحفظ من دلوقتي، بس هتستخدم في الرسم (المرحلة 10).
+- الـ Modify panel: rollout اسمه **Multires** فيه Open/Close Sculpt Mesh Menus، وزرار Sculpt، وعدد الـ vertices والـ polygons.
+- الواجهة كلها مرسومة بألوان ثيم 3ds Max، فبتبقى غامقة مع الثيم الغامق وفاتحة مع الفاتح.

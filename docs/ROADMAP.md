@@ -16,7 +16,7 @@
 │  │  • SculptMeshObject  (أوبجكت مشتق من PolyObject)       │  │
 │  │  • convertToSculpt + MacroScript + واجهة SculptMesh    │  │
 │  │  • Command Mode للماوس + Undo + رسم الفرشاة             │  │
-│  │  • الواجهات (Modify panel ثم الواجهة العائمة)           │  │
+│  │  • الواجهة العائمة + rollout الـ Multires + الاختصارات   │  │
 │  └───────────────┬────────────────────────────────────────┘  │
 │                  │ بيادي/بياخد positions و indices بس        │
 │  ┌───────────────▼────────────────────────────────────────┐  │
@@ -55,7 +55,7 @@
 
 ## 3. المراحل
 
-### المرحلة 1 — الأساس *(اتنفذت في الـ commit ده)*
+### المرحلة 1 — الأساس *(اتنفذت)*
 **الهدف:** نثبت المعمارية من أولها لآخرها بأقل عدد خصائص، بس كلها متينة.
 
 - محرك `SculptCore`: Mesh (polygons بأي عدد أضلاع) + adjacency + اكتشاف الحواف المفتوحة + normals كاملة وجزئية، و BVH (raycast + sphere query + refit جزئي)، و falloff، وضربة بمسافة ثابتة بين النقاط (spacing)، و Undo delta.
@@ -70,7 +70,7 @@
 
 **القبول:** كل اختبارات المحرك خضرا، وكود البلاجن بيعدّي فحص هيدرز الـ SDK الحقيقية، والبلاجن بيتبني بـ MSVC، وقائمة `docs/testing/PHASE1.md` بتعدّي في Max.
 
-### المرحلة 2 — الأداء والعرض في الـ Viewport
+### المرحلة 2 — الأداء والعرض في الـ Viewport *(اتنفذت)*
 **الهدف:** النحت يبقى سلس على **1 إلى 4 مليون polygon**.
 
 - Render items خاصة بـ Nitrous، بتحدّث بس أجزاء الـ vertex buffer اللي اتغيرت، بدل ما الشبكة كلها تتبني من الأول في كل dab.
@@ -79,29 +79,36 @@
 - Undo بذاكرة قليلة (ضغط الـ deltas).
 - Benchmarks في الـ CI بحدود أداء: لو الأداء وقع، الـ CI بيفشل.
 - **القبول:** 1M polygon أكتر من 30 dab/ثانية على جهاز متوسط، ومفيش تقطيع في الرسم.
+- **اللي اتعمل:** العرض بقى render items خاصة بـ Nitrous مقسومة chunks، ولون الماسك والجروبات جاي من texture صغيرة. الـ dab على مليون polygon بياخد حوالي 0.8 ms في الـ benchmark. Undo بيسجل اللي اتغير بس.
 
-### المرحلة 3 — الواجهة العائمة (Qt)
-- نافذة عائمة: شريط أدوات شمال (Select، و Sculpt/Paint، و Mask، و Stroke Mode، ومعاينة الـ Alpha)، و palette تحت (Sculpting / Paint / Alphas / Meshes) بالسحب لإعادة الترتيب والتمرير بعجلة الماوس، و rollouts يمين.
+### المرحلة 3 — الواجهة العائمة *(اتنفذت)*
+> **قرار:** الواجهة اتعملت بـ Win32 ورسم خاص بينا (owner-drawn) بألوان ثيم 3ds Max نفسه، بدل Qt. السبب إن Qt مختلف بين نسخ Max، ومعقد في البناء على الـ CI. والنتيجة نفس الشكل والسلوك، وبتتبني وتتفحص على 2024 و 2025 و 2026 بنفس الكود.
+- نوافذ عائمة: شريط أدوات شمال (Select، و Sculpt/Paint، و Mask، و Stroke Mode، ومعاينة الـ Alpha)، و palette تحت (Sculpting / Alphas دلوقتي، و Paint / Meshes مع مراحلهم) بالسحب لإعادة الترتيب والتمرير بعجلة الماوس، و rollouts يمين.
 - Rollout **Brush Settings** بكل أزراره، اللي بتظهر وتختفي حسب الفرشاة.
 - **Quick Menu** (مسك Space أو كليك يمين)، والأرقام 1–5 لأول خمس خانات، وإدارة الـ keyboard focus.
 - حفظ إعدادات كل فرشاة لوحدها بين الجلسات.
 - زرار **Open/Close Sculpt Mesh Menus** في الـ Multires rollout.
+- الاختصارات (1–5، و Space، و W/E/R، و Ctrl+W) في action table اسمه **Sculpt Mesh**، فاليوزر يقدر يغيّرها من الـ Hotkey Editor.
 
-### المرحلة 4 — نظام الضربة والإدخال
+### المرحلة 4 — نظام الضربة والإدخال *(اتنفذت)*
 - Stroke Spacing، و Follow Path، و Lazy Mouse، و Backface Cull لكل فرشاة.
-- **Ctrl+Alt** للخط المستقيم، و **Ctrl+Shift** + سحب لتغيير الحجم، وضغط القلم (pressure).
+- **Ctrl+Alt** للخط المستقيم، و **Ctrl+Shift** + سحب لتغيير الحجم.
+- ضغط القلم (pressure) **اتأجل**: الـ mouse callback بتاع Max مبيديش الضغط، ومحتاج طريقة تانية (Windows Ink أو WinTab). المحرك جاهز وبيستقبل الضغط مع كل dab.
 - Stroke Modes: **Draw و Stamp و Drag و Scatter** (و Color Mix في مرحلة الرسم).
 - Alphas: الأربعة المدمجين، و Alpha Mid/Fade، ومكتبة Alphas بالتصنيفات والمفضلة.
 - **Mirror:** X/Y/Z و Radial من 2 لـ 32.
 
-### المرحلة 5 — فرش النحت الأساسية
+### المرحلة 5 — فرش النحت الأساسية *(اتنفذت)*
 Clay و Clay Buildup و Carve و Knife و Contrast و Scrape (Original Plane/Normal) و Polish (Hardness) و Move (AccuCurve، والمسك من بره السطح) و Snake Hook و **Layer Mode** لـ Sculpt.
 
-### المرحلة 6 — الـ Mask و الـ SculptGroups
+### المرحلة 6 — الـ Mask و الـ SculptGroups *(اتنفذت)*
 - Paint Mask و Rectangle و Lasso، وكل الـ gestures (Ctrl مؤقت، والكليك في الفراغ، والدبل كليك للـ blur).
 - Blur و Sharpen و Grow و Shrink و Clear و Invert، و Mask by Cavity و Mask by AO.
 - الـ Mask بيحمي الفرش، و W/E/R بيحركوا الجزء اللي مش متعمله mask.
 - SculptGroups: **Ctrl+W**، و Auto Groups (Curvature، Angle، Smooth Groups، UV Islands، Material IDs، Elements)، وإظهار/إخفاء الجروبات، وفرشتين Face groups و Smooth SG Border.
+- الماسك والجروبات والأجزاء المخفية بيتحفظوا في الملف (صيغة الحفظ رقم 2، والملفات القديمة بتفتح عادي).
+
+> **اختبار المراحل 2–6 يدوياً:** [docs/testing/PHASES2-6.md](testing/PHASES2-6.md).
 
 ### المرحلة 7 — Multires و Surface Snapshot
 - مستويات تقسيم لحد 6، والتنقل بينها مع الحفاظ على التفاصيل.
