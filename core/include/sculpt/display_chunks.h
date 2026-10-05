@@ -12,6 +12,7 @@ namespace sculpt {
 
 struct DisplayChunk {
     std::vector<std::uint32_t> vertices;   // Mesh vertex of each local vertex.
+    std::vector<std::int32_t> groups;      // SculptGroup of each local vertex (vertices are split per group).
     std::vector<std::uint32_t> triangles;  // Local vertex indices, 3 per triangle.
     std::vector<std::uint32_t> edges;      // Local vertex indices, 2 per polygon edge (no diagonals).
 };
@@ -22,9 +23,12 @@ public:
 
     // Groups whole polygons (in Morton order of their centroids) into chunks
     // of about `trianglesPerChunk` triangles. Polygons flagged non-zero in
-    // `hiddenFaces` (indexed by polygon, may be null) are left out.
+    // `hiddenFaces` (indexed by polygon, may be null) are left out. With
+    // `faceGroups`, a vertex shared by polygons of different groups gets one
+    // local copy per group so group colours have crisp borders.
     void build(const Mesh& mesh, std::uint32_t trianglesPerChunk = kDefaultTrianglesPerChunk,
-               const std::vector<std::uint8_t>* hiddenFaces = nullptr);
+               const std::vector<std::uint8_t>* hiddenFaces = nullptr,
+               const std::vector<std::int32_t>* faceGroups = nullptr);
     void clear();
 
     const std::vector<DisplayChunk>& chunks() const { return chunks_; }

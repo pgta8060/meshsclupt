@@ -12,6 +12,7 @@ struct Fixture {
     Mesh mesh;
     Bvh bvh;
     StrokeRecorder recorder;
+    StrokeState state;
     DabScratch scratch;
     std::vector<std::uint32_t> moved;
 
@@ -23,7 +24,8 @@ struct Fixture {
 
     std::size_t dab(const BrushSettings& s, const Dab& d) {
         moved.clear();
-        const std::size_t n = applyDab(mesh, bvh, s, d, recorder, scratch, moved);
+        DabTarget target{mesh, bvh, recorder, state, scratch, moved};
+        const std::size_t n = applyDab(target, s, d);
         mesh.updateNormals(moved);
         std::vector<std::uint32_t> tris;
         mesh.collectTriangles(moved, tris);

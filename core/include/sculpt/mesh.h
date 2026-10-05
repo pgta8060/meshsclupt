@@ -72,6 +72,17 @@ public:
     Span<std::uint32_t> vertexTriangles(std::uint32_t v) const {
         return {vertexTris_.data() + vertexTriOffsets_[v], vertexTriOffsets_[v + 1] - vertexTriOffsets_[v]};
     }
+    // Polygons using vertex v.
+    Span<std::uint32_t> vertexFaces(std::uint32_t v) const {
+        return {vertexFaces_.data() + vertexFaceOffsets_[v], vertexFaceOffsets_[v + 1] - vertexFaceOffsets_[v]};
+    }
+    // Polygons sharing an edge with polygon f.
+    Span<std::uint32_t> faceNeighbors(std::uint32_t f) const {
+        return {faceAdjacency_.data() + faceAdjacencyOffsets_[f], faceAdjacencyOffsets_[f + 1] - faceAdjacencyOffsets_[f]};
+    }
+    // Unit geometric normal of polygon f (area weighted over its triangles).
+    Vec3 faceNormal(std::uint32_t f) const;
+    Vec3 faceCenter(std::uint32_t f) const;
 
     void recomputeAllNormals();
 
@@ -109,6 +120,12 @@ private:
     std::vector<std::uint32_t> border_;
     std::vector<std::uint32_t> vertexTriOffsets_;  // vertexCount + 1
     std::vector<std::uint32_t> vertexTris_;
+    std::vector<std::uint32_t> vertexFaceOffsets_;  // vertexCount + 1
+    std::vector<std::uint32_t> vertexFaces_;
+    std::vector<std::uint32_t> faceAdjacencyOffsets_;  // faceCount + 1
+    std::vector<std::uint32_t> faceAdjacency_;
+    std::vector<std::uint32_t> faceTriOffsets_;  // faceCount + 1 (triangles grouped per face)
+    std::vector<std::uint32_t> faceTris_;
 
     // Scratch for incremental updates (not thread-safe).
     mutable VisitSet triVisit_;

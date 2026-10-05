@@ -141,7 +141,8 @@ void Bvh::refit(const Mesh& mesh, Span<std::uint32_t> movedTriangles) {
     }
 }
 
-bool Bvh::raycast(const Mesh& mesh, const Ray& ray, RayHit& hit, bool cullBackfaces, float tMax) const {
+bool Bvh::raycast(const Mesh& mesh, const Ray& ray, RayHit& hit, bool cullBackfaces, float tMax,
+                  const std::uint8_t* hiddenTriangles) const {
     if (nodes_.empty()) return false;
     const Vec3 invDir{1.0f / ray.dir.x, 1.0f / ray.dir.y, 1.0f / ray.dir.z};
 
@@ -158,6 +159,7 @@ bool Bvh::raycast(const Mesh& mesh, const Ray& ray, RayHit& hit, bool cullBackfa
         if (node.isLeaf()) {
             for (std::uint32_t i = node.first; i < node.first + node.count; ++i) {
                 const std::uint32_t t = triIndices_[i];
+                if (hiddenTriangles && hiddenTriangles[t]) continue;
                 const auto tri = mesh.triangle(t);
                 float th = 0.0f, u = 0.0f, v = 0.0f;
                 if (intersectRayTriangle(ray, mesh.position(tri[0]), mesh.position(tri[1]), mesh.position(tri[2]),
@@ -199,7 +201,8 @@ bool Bvh::raycast(const Mesh& mesh, const Ray& ray, RayHit& hit, bool cullBackfa
     return found;
 }
 
-void Bvh::gatherVertices(const Mesh& mesh, const Vec3& center, float radius, std::vector<std::uint32_t>& out) const {
+void Bvh::gatherVertices(const Mesh& mesh, const Vec3& center, float radius, std::vector<std::uint32_t>& out,
+                         const std::uint8_t* hiddenTriangles) const {
     if (nodes_.empty() || !(radius >= 0.0f) || !isFinite(center)) return;
     const float r2 = radius * radius;
     vertexVisit_.begin(mesh.vertexCount());
@@ -216,6 +219,7 @@ void Bvh::gatherVertices(const Mesh& mesh, const Vec3& center, float radius, std
             continue;
         }
         for (std::uint32_t i = node.first; i < node.first + node.count; ++i) {
+            if (hiddenTriangles && hiddenTriangles[triIndices_[i]]) continue;
             for (std::uint32_t v : mesh.triangle(triIndices_[i])) {
                 if (!vertexVisit_.visit(v)) continue;
                 if (lengthSq(mesh.position(v) - center) <= r2) out.push_back(v);

@@ -100,10 +100,11 @@ bool Mesh::build(MeshInput in, std::string* error) {
     }
     const std::uint32_t T = triangleCount();
 
-    // --- Edges: adjacency and open borders ---------------------------------
+    // --- Edges: adjacency, open borders and polygon adjacency ---------------
     {
         std::vector<std::uint64_t> edges;
-        edges.reserve(faceVerts_.size());
+        std::vector<std::pair<std::uint64_t, std::uint32_t>> edgeFaces;  // (edge key, polygon)
+        edgeFaces.reserve(faceVerts_.size());
         for (std::uint32_t f = 0; f < F; ++f) {
             const Span<std::uint32_t> poly = faceVertices(f);
             for (std::size_t i = 0; i < poly.size(); ++i) {
@@ -111,10 +112,37 @@ bool Mesh::build(MeshInput in, std::string* error) {
                 std::uint32_t b = poly[(i + 1) % poly.size()];
                 if (a == b) continue;  // Degenerate edge (repeated vertex).
                 if (a > b) std::swap(a, b);
-                edges.push_back((static_cast<std::uint64_t>(a) << 32) | b);
+                edgeFaces.emplace_back((static_cast<std::uint64_t>(a) << 32) | b, f);
             }
         }
-        std::sort(edges.begin(), edges.end());
+        std::sort(edgeFaces.begin(), edgeFaces.end());
+        edges.reserve(edgeFaces.size());
+        for (const auto& ef : edgeFaces) edges.push_back(ef.first);
+
+        // Polygon adjacency: polygons sharing an edge key.
+        std::vector<std::uint32_t> faceAdjCount(F, 0u);
+        for (std::size_t i = 0; i < edgeFaces.size();) {
+            std::size_t j = i;
+            while (j < edgeFaces.size() && edgeFaces[j].first == edgeFaces[i].first) ++j;
+            for (std::size_t a = i; a < j; ++a)
+                for (std::size_t b = i; b < j; ++b)
+                    if (edgeFaces[a].second != edgeFaces[b].second) ++faceAdjCount[edgeFaces[a].second];
+            i = j;
+        }
+        prefixSum(faceAdjCount, faceAdjacencyOffsets_);
+        faceAdjacency_.resize(faceAdjacencyOffsets_[F]);
+        {
+            std::vector<std::uint32_t> cursor(faceAdjacencyOffsets_.begin(), faceAdjacencyOffsets_.end() - 1);
+            for (std::size_t i = 0; i < edgeFaces.size();) {
+                std::size_t j = i;
+                while (j < edgeFaces.size() && edgeFaces[j].first == edgeFaces[i].first) ++j;
+                for (std::size_t a = i; a < j; ++a)
+                    for (std::size_t b = i; b < j; ++b)
+                        if (edgeFaces[a].second != edgeFaces[b].second)
+                            faceAdjacency_[cursor[edgeFaces[a].second]++] = edgeFaces[b].second;
+                i = j;
+            }
+        }
 
         std::vector<std::uint32_t> adjCount(V, 0u);
         std::vector<std::uint32_t> borderCount(V, 0u);
@@ -151,6 +179,32 @@ bool Mesh::build(MeshInput in, std::string* error) {
             }
             i = j;
         }
+    }
+
+    // --- Vertex -> polygon and polygon -> triangle incidence ---------------
+    {
+        std::vector<std::uint32_t> count(V, 0u);
+        for (std::uint32_t f = 0; f < F; ++f) {
+            const Span<std::uint32_t> poly = faceVertices(f);
+            for (std::size_t i = 0; i < poly.size(); ++i)
+                if (std::find(poly.begin(), poly.begin() + i, poly[i]) == poly.begin() + i) ++count[poly[i]];
+        }
+        prefixSum(count, vertexFaceOffsets_);
+        vertexFaces_.resize(vertexFaceOffsets_[V]);
+        std::vector<std::uint32_t> cursor(vertexFaceOffsets_.begin(), vertexFaceOffsets_.end() - 1);
+        for (std::uint32_t f = 0; f < F; ++f) {
+            const Span<std::uint32_t> poly = faceVertices(f);
+            for (std::size_t i = 0; i < poly.size(); ++i)
+                if (std::find(poly.begin(), poly.begin() + i, poly[i]) == poly.begin() + i)
+                    vertexFaces_[cursor[poly[i]]++] = f;
+        }
+
+        std::vector<std::uint32_t> triCount(F, 0u);
+        for (std::uint32_t t = 0; t < T; ++t) ++triCount[triFaces_[t]];
+        prefixSum(triCount, faceTriOffsets_);
+        faceTris_.resize(faceTriOffsets_[F]);
+        std::vector<std::uint32_t> triCursor(faceTriOffsets_.begin(), faceTriOffsets_.end() - 1);
+        for (std::uint32_t t = 0; t < T; ++t) faceTris_[triCursor[triFaces_[t]]++] = t;
     }
 
     // --- Vertex -> triangle incidence ---------------------------------------
@@ -229,6 +283,19 @@ void Mesh::updateNormals(Span<std::uint32_t> movedVertices) {
     });
 }
 
+Vec3 Mesh::faceNormal(std::uint32_t f) const {
+    Vec3 sum;
+    for (std::uint32_t k = faceTriOffsets_[f]; k < faceTriOffsets_[f + 1]; ++k) sum += triNormals_[faceTris_[k]];
+    return normalizedOrZero(sum);
+}
+
+Vec3 Mesh::faceCenter(std::uint32_t f) const {
+    const Span<std::uint32_t> poly = faceVertices(f);
+    Vec3 c;
+    for (std::uint32_t v : poly) c += positions_[v];
+    return c / static_cast<float>(poly.size());
+}
+
 Aabb Mesh::bounds() const {
     Aabb box;
     for (const Vec3& p : positions_) box.expand(p);
@@ -239,7 +306,9 @@ std::size_t Mesh::memoryBytes() const {
     return bytesOf(positions_) + bytesOf(normals_) + bytesOf(faceOffsets_) + bytesOf(faceVerts_) +
            bytesOf(triVerts_) + bytesOf(triFaces_) + bytesOf(triNormals_) + bytesOf(adjacencyOffsets_) +
            bytesOf(adjacency_) + bytesOf(borderOffsets_) + bytesOf(border_) + bytesOf(vertexTriOffsets_) +
-           bytesOf(vertexTris_) + bytesOf(scratchTris_) + bytesOf(normalUpdated_);
+           bytesOf(vertexTris_) + bytesOf(scratchTris_) + bytesOf(normalUpdated_) +
+           bytesOf(vertexFaceOffsets_) + bytesOf(vertexFaces_) + bytesOf(faceAdjacencyOffsets_) + bytesOf(faceAdjacency_) +
+           bytesOf(faceTriOffsets_) + bytesOf(faceTris_);
 }
 
 }  // namespace sculpt

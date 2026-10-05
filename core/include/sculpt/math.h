@@ -101,6 +101,36 @@ struct Aabb {
     bool operator==(const Aabb& o) const { return lo == o.lo && hi == o.hi; }
 };
 
+// 3x3 matrix stored as rows; used for symmetry (reflections, rotations).
+struct Mat3 {
+    Vec3 r0{1, 0, 0};
+    Vec3 r1{0, 1, 0};
+    Vec3 r2{0, 0, 1};
+
+    static Mat3 identity() { return {}; }
+    static Mat3 diagonal(const Vec3& d) { return {{d.x, 0, 0}, {0, d.y, 0}, {0, 0, d.z}}; }
+    // Right-handed rotation by `angle` radians about the X (0), Y (1) or Z (2) axis.
+    static Mat3 rotation(int axis, float angle) {
+        const float c = std::cos(angle), s = std::sin(angle);
+        if (axis == 0) return {{1, 0, 0}, {0, c, -s}, {0, s, c}};
+        if (axis == 1) return {{c, 0, s}, {0, 1, 0}, {-s, 0, c}};
+        return {{c, -s, 0}, {s, c, 0}, {0, 0, 1}};
+    }
+
+    Vec3 operator*(const Vec3& v) const { return {dot(r0, v), dot(r1, v), dot(r2, v)}; }
+    Mat3 operator*(const Mat3& o) const {
+        const Vec3 c0{o.r0.x, o.r1.x, o.r2.x}, c1{o.r0.y, o.r1.y, o.r2.y}, c2{o.r0.z, o.r1.z, o.r2.z};
+        return {{dot(r0, c0), dot(r0, c1), dot(r0, c2)},
+                {dot(r1, c0), dot(r1, c1), dot(r1, c2)},
+                {dot(r2, c0), dot(r2, c1), dot(r2, c2)}};
+    }
+    float determinant() const { return dot(r0, cross(r1, r2)); }
+    bool nearlyEquals(const Mat3& o, float eps = 1e-4f) const {
+        const Vec3 d0 = r0 - o.r0, d1 = r1 - o.r1, d2 = r2 - o.r2;
+        return lengthSq(d0) + lengthSq(d1) + lengthSq(d2) <= eps * eps;
+    }
+};
+
 struct Ray {
     Vec3 origin;
     Vec3 dir;  // Does not need to be unit length; hit distances are in units of |dir|.

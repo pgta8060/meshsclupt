@@ -1,11 +1,14 @@
 add_library(SculptCore STATIC
+  src/alpha.cpp
   src/brush.cpp
   src/bvh.cpp
   src/display_chunks.cpp
   src/mesh.cpp
   src/parallel.cpp
   src/session.cpp
+  src/session_ops.cpp
   src/stroke.cpp
+  src/symmetry.cpp
 )
 target_include_directories(SculptCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 find_package(Threads REQUIRED)
@@ -19,6 +22,7 @@ if(SCULPT_BUILD_TESTS)
     tests/test_brush.cpp
     tests/test_bvh.cpp
     tests/test_display.cpp
+    tests/test_features.cpp
     tests/test_math.cpp
     tests/test_mesh.cpp
     tests/test_session.cpp

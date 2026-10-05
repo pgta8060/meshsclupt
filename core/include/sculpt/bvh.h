@@ -30,12 +30,14 @@ public:
     bool empty() const { return nodes_.empty(); }
 
     // Closest hit with t in (0, tMax). Returns false when nothing is hit.
+    // Triangles flagged non-zero in `hiddenTriangles` (may be null) are skipped.
     bool raycast(const Mesh& mesh, const Ray& ray, RayHit& hit, bool cullBackfaces = false,
-                 float tMax = kInfinity) const;
+                 float tMax = kInfinity, const std::uint8_t* hiddenTriangles = nullptr) const;
 
-    // Appends every vertex (used by at least one triangle) within `radius` of
-    // `center`, without duplicates.
-    void gatherVertices(const Mesh& mesh, const Vec3& center, float radius, std::vector<std::uint32_t>& out) const;
+    // Appends every vertex (used by at least one visible triangle) within
+    // `radius` of `center`, without duplicates.
+    void gatherVertices(const Mesh& mesh, const Vec3& center, float radius, std::vector<std::uint32_t>& out,
+                        const std::uint8_t* hiddenTriangles = nullptr) const;
 
     // Updates node bounds after the given triangles moved (topology unchanged).
     void refit(const Mesh& mesh, Span<std::uint32_t> movedTriangles);

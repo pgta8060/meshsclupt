@@ -1,6 +1,7 @@
 #include "sculpt/display_chunks.h"
 
 #include <algorithm>
+#include <unordered_map>
 #include <utility>
 
 namespace sculpt {
@@ -37,7 +38,8 @@ void DisplayChunks::clear() {
     dirty_.clear();
 }
 
-void DisplayChunks::build(const Mesh& mesh, std::uint32_t trianglesPerChunk, const std::vector<std::uint8_t>* hiddenFaces) {
+void DisplayChunks::build(const Mesh& mesh, std::uint32_t trianglesPerChunk, const std::vector<std::uint8_t>* hiddenFaces,
+                          const std::vector<std::int32_t>* faceGroups) {
     clear();
     const std::uint32_t V = mesh.vertexCount();
     const std::uint32_t F = mesh.faceCount();
@@ -74,26 +76,30 @@ void DisplayChunks::build(const Mesh& mesh, std::uint32_t trianglesPerChunk, con
     }
     std::sort(order.begin(), order.end());
 
-    std::vector<std::uint32_t> localOf(V, 0u);
-    std::vector<std::uint32_t> localStamp(V, 0u);  // Chunk index + 1 that owns localOf[v].
+    const bool grouped = faceGroups && faceGroups->size() == F;
+    std::unordered_map<std::uint64_t, std::uint32_t> localOf;  // (vertex, group) -> local index
     std::vector<std::uint64_t> edgeKeys;
 
     std::size_t i = 0;
     while (i < order.size()) {
         DisplayChunk chunk;
-        const auto stamp = static_cast<std::uint32_t>(chunks_.size() + 1);
+        localOf.clear();
+        std::int32_t faceGroup = 0;
         auto local = [&](std::uint32_t v) {
-            if (localStamp[v] != stamp) {
-                localStamp[v] = stamp;
-                localOf[v] = static_cast<std::uint32_t>(chunk.vertices.size());
+            const std::uint64_t key = (static_cast<std::uint64_t>(v) << 32) | static_cast<std::uint32_t>(faceGroup);
+            auto it = localOf.find(key);
+            if (it == localOf.end()) {
+                it = localOf.emplace(key, static_cast<std::uint32_t>(chunk.vertices.size())).first;
                 chunk.vertices.push_back(v);
+                chunk.groups.push_back(faceGroup);
             }
-            return localOf[v];
+            return it->second;
         };
         edgeKeys.clear();
         std::uint32_t triCount = 0;
         while (i < order.size() && (triCount == 0 || triCount < trianglesPerChunk)) {
             const std::uint32_t f = order[i++].second;
+            faceGroup = grouped ? std::max<std::int32_t>(0, (*faceGroups)[f]) : 0;
             for (std::uint32_t k = faceTriOffsets[f]; k < faceTriOffsets[f + 1]; ++k) {
                 for (std::uint32_t v : mesh.triangle(faceTris[k])) chunk.triangles.push_back(local(v));
                 ++triCount;
@@ -117,14 +123,24 @@ void DisplayChunks::build(const Mesh& mesh, std::uint32_t trianglesPerChunk, con
         if (!chunk.triangles.empty()) chunks_.push_back(std::move(chunk));
     }
 
-    // Vertex -> chunks (CSR).
-    for (const DisplayChunk& c : chunks_)
-        for (std::uint32_t v : c.vertices) ++vertexChunkOffsets_[v + 1];
+    // Vertex -> chunks (CSR); a vertex split per group counts once per chunk.
+    std::vector<std::uint32_t> lastChunk(V, 0xffffffffu);
+    for (std::uint32_t c = 0; c < chunks_.size(); ++c)
+        for (std::uint32_t v : chunks_[c].vertices)
+            if (lastChunk[v] != c) {
+                lastChunk[v] = c;
+                ++vertexChunkOffsets_[v + 1];
+            }
     for (std::uint32_t v = 0; v < V; ++v) vertexChunkOffsets_[v + 1] += vertexChunkOffsets_[v];
     vertexChunks_.resize(vertexChunkOffsets_[V]);
     std::vector<std::uint32_t> cursor(vertexChunkOffsets_.begin(), vertexChunkOffsets_.end() - 1);
+    std::fill(lastChunk.begin(), lastChunk.end(), 0xffffffffu);
     for (std::uint32_t c = 0; c < chunks_.size(); ++c)
-        for (std::uint32_t v : chunks_[c].vertices) vertexChunks_[cursor[v]++] = c;
+        for (std::uint32_t v : chunks_[c].vertices)
+            if (lastChunk[v] != c) {
+                lastChunk[v] = c;
+                vertexChunks_[cursor[v]++] = c;
+            }
 
     dirtyFlag_.assign(chunks_.size(), 0u);
     markAll();
