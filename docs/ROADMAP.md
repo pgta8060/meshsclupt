@@ -110,25 +110,30 @@ Clay و Clay Buildup و Carve و Knife و Contrast و Scrape (Original Plane/Nor
 
 > **اختبار المراحل 2–6 يدوياً:** [docs/testing/PHASES2-6.md](testing/PHASES2-6.md).
 
-### المرحلة 7 — Multires و Surface Snapshot
+### المرحلة 7 — Multires و Surface Snapshot *(اتنفذت)*
 - مستويات تقسيم لحد 6، والتنقل بينها مع الحفاظ على التفاصيل.
 - Reverse Subdivision و Del Lower و Del Higher، و Use Materials ID / Smoothing Groups، و Autosmooth.
 - حفظ مضغوط وسريع للمستويات.
 - Surface Snapshot وفرشة **Revert**.
 
-### المرحلة 8 — الطبقات و Displace
+### المرحلة 8 — الطبقات و Displace *(اتنفذت)*
 - Sculpt Layers: جديدة، ومسح، و Clear، وترتيب، و Bake All، و Strength لحد 5×.
 - Rollout **Displace**: صورة، و UV أو Triplanar، و Strength، و Water Level، و Blur، و Contrast، و Tile/Offset، و Live Update.
 
-### المرحلة 9 — الفرش المتخصصة
+### المرحلة 9 — الفرش المتخصصة *(اتنفذت)*
 - Pose و Cloth (بكل إعداداته) و **Curve Tube** (مع Pick Section Shape) و rollout **Profile** (محرر curve Bezier).
-- Clip و Cutter و Slice (مع Space للتحريك)، و Density/Reduce (topology ديناميكي)، و Displace brush مع الـ Stencil.
+- Clip و Cutter و Slice (مع Space للتحريك)، و Density/Reduce (الشبكة بتتعدل لما الضربة تخلص).
+- فرشة Displace اتنقلت للمرحلة 10 عشان بتعتمد على الـ Stencil.
+- العمليات اللي بتغيّر الـ topology (Density و Cutter و Slice و Curve Tube) بتشيل مستويات الـ Multires والطبقات (بتدمجها في الشكل)، وكلها خطوة undo واحدة.
 
-### المرحلة 10 — الرسم (Texture Paint)
+### المرحلة 10 — الرسم (Texture Paint) *(اتنفذت)*
 - Paint Source (Generated/Existing Diffuse)، و Color A/B، و Save/Save As/Replace/Restore.
 - 6 أدوات: Paint و Smudge و Fill و Blur و Erase و Gradient، و Color Mix.
 - Paint Layers بالـ blend modes (Normal و Multiply و Screen و Overlay و Add و Subtract)، و Hue/Sat/Lum و Brightness/Contrast و Levels، و Import Texture.
-- Stencil: تحميل، و opacity، ومسك **S** للتدوير والتكبير والتحريك.
+- Stencil: تحميل، و opacity، ومسك **S** للتدوير والتكبير والتحريك، وفرشة **Displace** (الـ Stencil كارتفاع).
+- الرسم محتاج UVs في map channel 1. الطبقات بتفضل موجودة طول ما Max مفتوح؛ اللي بيتحفظ مع المشهد هو ملف الصورة (Save / Save As).
+
+> **اختبار المراحل 7–10 يدوياً:** [docs/testing/PHASES7-10.md](testing/PHASES7-10.md).
 
 ### المرحلة 11 — عمليات الشبكة
 - **Remesh:** Voxelize (من 2024 وأحدث) و Retopology (ReForm، و Ctrl لـ Instant Meshes).

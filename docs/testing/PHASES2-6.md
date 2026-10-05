@@ -11,7 +11,7 @@
 ## أ. التحميل والواجهة العائمة (المرحلة 3)
 | # | الخطوة | المتوقع | النتيجة |
 |---|---|---|---|
-| 1 | `SculptMesh.Version` | `"0.6.0 (phases 1-6)"` | |
+| 1 | `SculptMesh.Version` | `"1.0.0 (phases 1-10)"` (أو أحدث) | |
 | 2 | حوّل GeoSphere (segments = 60) لـ Sculpt Mesh، وافتح الـ Modify panel | يظهر rollout اسمه **Multires**، والقوائم العائمة تظهر فوق الـ viewports: شريط على الشمال، و palette تحت، و rollouts على اليمين | |
 | 3 | دوس **Close Sculpt Mesh Menus** وبعدين **Open Sculpt Mesh Menus** | القوائم تختفي وترجع، واسم الزرار يتغير | |
 | 4 | روح للـ Create panel وارجع للـ Modify | القوائم تختفي مع الخروج وترجع مع الرجوع | |

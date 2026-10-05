@@ -46,12 +46,15 @@ ctest --test-dir build -C Release
 | Ctrl+Alt+كليك | خط مستقيم من آخر ضربة |
 | Ctrl+Shift + سحب بالعرض | تغيير حجم الفرشاة |
 | Ctrl+Shift+Alt+كليك | عزل جروب أو إخفاؤه؛ وفي الفراغ: إظهار الكل |
-| 1 – 5 | أول 5 فرش في الـ palette |
+| 1 – 5 | أول 5 فرش (أو أدوات رسم في وضع Paint) في الـ palette |
 | مسك Space، أو كليك يمين | Quick Menu |
 | W / E / R | تحريك، أو تدوير، أو تكبير الجزء اللي مش عليه ماسك |
 | Ctrl+W | SculptGroup من الماسك |
 | كليك يمين أثناء الضربة، أو Esc | إلغاء الضربة |
 | Ctrl+Z | Undo لضربة أو عملية كاملة |
+| Esc | إلغاء الـ Curve Tube اللي لسه ما اتثبتش، أو إلغاء Pick Section Shape |
+| مسك S + زرار شمال / يمين / وسط | تدوير / تكبير / تحريك الـ Stencil |
+| Shift و Alt في وضع Paint | Blur مؤقت، و Erase مؤقت |
 
 **لو الاختصارات مش شغالة:** شغّل زرار **Keyboard Shortcut Override Toggle** في شريط Max، أو افتح **Customize > Hotkey Editor** وابحث عن group اسمه **Sculpt Mesh** وغيّر المفاتيح زي ما تحب. الاختصارات شغالة بس والـ Sculpt Mesh مفتوح في الـ Modify panel، وبعد ما تكليك في الـ viewport مرة.
 
@@ -64,12 +67,18 @@ convertToSculpt $                 -- يحوّل الأوبجكت المختار 
 SculptMesh.StartSculpt()          -- يدخل وضع النحت
 SculptMesh.Brush = #clay          -- #sculpt #clay #clayBuildup #carve #knife #contrast #scrape #polish
                                   -- #move #snakeHook #pinch #inflate #smooth #faceGroups #smoothGroupBorder
+                                  -- #density #revert #clip #cutter #slice #cloth #pose #curveTube #displace
 SculptMesh.BrushSize = 60         -- نصف القطر بالبكسل
 SculptMesh.BrushStrength = 0.4
 SculptMesh.SetValue "mirrorX" 1   -- أي إعداد بالاسم (موجودين في SculptMesh.ini)
 SculptMesh.GetValue "strokeMode"  -- 0 Draw، 1 Stamp، 2 Drag، 4 Scatter
 SculptMesh.Run "maskInvert"       -- maskClear maskInvert maskBlur maskSharpen maskGrow maskShrink
                                   -- maskByCavity maskByAO groupFromMask autoGroups showAll invertVisibility
+SculptMesh.Run "paintMode"        -- وضع الرسم (و "sculptMode" للرجوع)
+SculptMesh.SetValue "paintTool" 3 -- 0 Paint، 1 Smudge، 2 Fill، 3 Blur، 4 Erase، 5 Gradient
+SculptMesh.Run "savePaintTexture" -- Save (و "savePaintTextureAs" و "restoreMaterial")
+SculptMesh.Run "loadStencil"      -- و "clearStencil"
+SculptMesh.MultiresLevel = 2      -- مستوى الـ Multires (و SculptMesh.MultiresTopLevel)
 SculptMesh.MenusOpen = true       -- يفتح القوائم العائمة
 SculptMesh.StopSculpt()
 ```

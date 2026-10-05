@@ -51,10 +51,10 @@
 - **Remesh** (المرحلة 11): `Voxelize Mesh` وجنبه الدقة (256)، و `Retopology` وجنبه عدد الـ polygons (2000).
 - **خانة الـ Alpha في الشريط الشمال:** بتعرض الـ alpha المختار، ولو مفيش بتقول إن مفيش alpha.
 
-## اللي اتنفذ لحد المرحلة 6
-- الشريط الشمال: Select، و Sculpt/Paint (الـ Paint ظاهر بس مقفول لحد المرحلة 10)، و Mask، و Stroke Mode (الـ Color Mix مقفول لحد المرحلة 10)، والـ Alpha.
-- الـ palette: تاب **Sculpting** وتاب **Alphas**. تابات Paint و Meshes هتظهر مع مراحلهم (10 و 12).
-- الـ rollouts العائمة: **Brush Settings** و **Material / Paint** و **Mask** و **Mirror**. وهيتضاف Profile و Surface Snapshot و Layers مع مراحلهم.
-- الـ Quick Menu زي الصورة بالظبط. الألوان بتتحفظ من دلوقتي، بس هتستخدم في الرسم (المرحلة 10).
-- الـ Modify panel: rollout اسمه **Multires** فيه Open/Close Sculpt Mesh Menus، وزرار Sculpt، وعدد الـ vertices والـ polygons.
+## اللي اتنفذ لحد المرحلة 10
+- الشريط الشمال: Select، و Sculpt/Paint، و Mask، و Stroke Mode (Draw و Stamp و Drag و Color Mix و Scatter)، والـ Alpha.
+- الـ palette: تابات **Sculpting** و **Paint** و **Alphas** (السحب لإعادة الترتيب شغال في Sculpting و Paint، والأرقام 1–5 بتمشي مع الوضع الحالي). تاب Meshes هييجي مع المرحلة 12.
+- الـ rollouts العائمة: **Brush Settings** (بتتغير مع الفرشة أو أداة الرسم)، و **Material / Paint**، و **Mask**، و **Mirror**، و **Profile** (فيه محرر الـ curve)، و **Layers** (تابين Sculpt و Paint)، و **Surface Snapshot**.
+- الـ Quick Menu زي الصورة بالظبط، و Color A / Color B بيتستخدموا في الرسم.
+- الـ Modify panel: rollout اسمه **Multires** (Open/Close Sculpt Mesh Menus، و Reverse Subdivision، و Del Lower/Del Higher، و Level، و Subdivide Level، و Materials ID، و Smoothing Groups، و Autosmooth)، و rollout اسمه **Displace**.
 - الواجهة كلها مرسومة بألوان ثيم 3ds Max، فبتبقى غامقة مع الثيم الغامق وفاتحة مع الفاتح.

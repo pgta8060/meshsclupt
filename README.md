@@ -3,17 +3,21 @@
 نحت، ورسم textures، و masks، و SculptGroups، و layers، و Multires، و remesh، و baking، كله جوه 3ds Max 2024 / 2025 / 2026.
 البلاجن بيتبني على مراحل، وبين كل مرحلة والتانية بوابة جودة. شوف [الخطة (ROADMAP)](docs/ROADMAP.md).
 
-**الحالة دلوقتي: المراحل من 1 لـ 6 خلصت ومستنية الاختبار في Max.**
+**الحالة دلوقتي: المراحل من 1 لـ 10 خلصت ومستنية الاختبار في Max.**
 - أوبجكت Sculpt Mesh، و `convertToSculpt`، وحفظ وتحميل، و Undo لكل حاجة.
 - عرض سريع بـ Nitrous للشبكات الكبيرة، والفرش شغالة على أكتر من thread.
 - الواجهة العائمة: شريط الأدوات، والـ palette (Sculpting / Alphas)، و Brush Settings، و Material / Paint، و Mask، و Mirror، والـ Quick Menu.
 - 15 فرشة: Sculpt، و Clay، و Clay Buildup، و Carve، و Knife، و Contrast، و Scrape، و Polish، و Move، و Snake Hook، و Pinch، و Inflate، و Smooth، و Face groups، و Smooth SG Border.
 - Stroke Modes (Draw / Stamp / Drag / Scatter)، و Lazy Mouse، و Follow Path، و Alphas بمكتبة وتصنيفات ومفضلة، و Mirror و Radial.
 - الـ Mask (Paint / Rectangle / Lasso وكل الـ gestures)، و W/E/R بيحركوا الجزء اللي مش عليه ماسك، و SculptGroups.
+- Multires لحد 6 مستويات (Reverse Subdivision، و Del Lower/Higher)، و Surface Snapshot وفرشة Revert، و Sculpt Layers لحد 5×، و rollout اسمه Displace.
+- الفرش المتخصصة: Density/Reduce، و Clip، و Cutter، و Slice، و Cloth، و Pose، و Curve Tube (مع Pick Section Shape)، و rollout اسمه Profile فيه محرر curve.
+- الرسم: 6 أدوات (Paint و Smudge و Fill و Blur و Erase و Gradient)، و Color Mix، و Paint Layers بالـ blend modes والـ adjustments، و Stencil، وفرشة Displace، و Save / Save As / Replace / Restore Material.
 
 | | |
 |---|---|
 | التثبيت والاستخدام | [docs/INSTALL.md](docs/INSTALL.md) |
+| قائمة الاختبار اليدوي للمراحل 7–10 | [docs/testing/PHASES7-10.md](docs/testing/PHASES7-10.md) |
 | قائمة الاختبار اليدوي للمراحل 2–6 | [docs/testing/PHASES2-6.md](docs/testing/PHASES2-6.md) |
 | قائمة الاختبار اليدوي للمرحلة 1 | [docs/testing/PHASE1.md](docs/testing/PHASE1.md) |
 | مرجع الواجهة المطلوبة | [docs/UI_REFERENCE.md](docs/UI_REFERENCE.md) |
