@@ -11,6 +11,7 @@
 #include "SculptDisplay.h"
 #include "SculptMeshPlugin.h"
 #include "SculptSessionBridge.h"
+#include "sculpt/multires.h"
 
 class MoveModBoxCMode;
 class RotateModBoxCMode;
@@ -23,7 +24,8 @@ public:
     // Version written into every saved object. Bump when the format changes
     // and keep loading every older version.
     //   1: PolyObject data.  2: + mask, SculptGroups, hidden polygons.
-    static constexpr DWORD kFileVersion = 2;
+    //   3: + Multires stack, Surface Snapshot.
+    static constexpr DWORD kFileVersion = 3;
 
     SculptMeshObject();
     ~SculptMeshObject() override;
@@ -119,11 +121,50 @@ public:
 
     const SculptAttributes& Attributes() const { return attributes_; }
 
+    // --- Multires (each operation is one undo step) ----------------------------------
+    int MultiresTopLevel() const { return multires_ ? multires_->topLevel() : 0; }
+    int MultiresLevel() const { return level_; }
+    bool SetMultiresLevel(int level, MSTR& error);
+    bool SubdivideLevel(MSTR& error);      // From the top level.
+    bool DeleteLowerLevels(MSTR& error);   // The current level becomes level 0.
+    bool DeleteHigherLevels(MSTR& error);  // Levels above the current one are removed.
+    bool ReverseSubdivision(MSTR& error);  // Rebuilds a coarser level 0.
+    // Auto Smooth (or faceted) from the settings; call after the settings changed.
+    void RefreshSmoothing();
+
+    // --- Surface Snapshot (Revert brush) -------------------------------------------------
+    void CaptureSurface();
+    void ClearSurface();
+    bool HasSurface() const { return !surface_.positions.empty(); }
+    // The snapshot fits the current level and topology (the Revert brush can use it).
+    bool SurfaceMatches() const;
+    MSTR SurfaceStatus() const;
+
+    // Identifies the current topology + level; undo records only apply to it.
+    std::uint64_t TopologyStamp() const { return (topologyId_ << 4) | static_cast<std::uint64_t>(level_ & 0xf); }
+
+    // Full object state for undo of topology-changing operations.
+    struct State;
+    std::shared_ptr<State> CaptureState() const;
+    void RestoreState(const State& state);
+    // Level change without an undo record (used by undo/redo itself).
+    bool SetLevelInternal(int level, MSTR& error);
+
     // The object currently shown in the Modify panel (nullptr if none).
     static SculptMeshObject* EditedObject() { return editedObject_; }
     static IObjParam* EditInterface() { return editInterface_; }
 
 private:
+    bool CommitLevel(MSTR& error);
+    void ReplaceMesh(const sculpt::PolyData& poly);
+    void NotifyTopologyChange();
+    void ApplyAutoSmooth();
+    void UpdateSessionReference();
+    // Runs a topology/stack change as one undo step (full state snapshots).
+    // `sameMesh`: the displayed mesh is unchanged, so a matching snapshot stays valid.
+    bool RunStructural(const std::function<bool(MSTR&)>& op, int undoName, MSTR& error, bool sameMesh = false);
+    static std::uint64_t NewTopologyId();
+
     Box3 SessionBounds() const;
     void Transform(TimeValue t, Matrix3& partm, Matrix3& tmAxis, const Matrix3& xfrm);
     float TransformWeight(int v) const;
@@ -141,6 +182,15 @@ private:
     bool xformActive_ = false;
     std::vector<Point3> xformOrigin_;
 
+    std::unique_ptr<sculpt::Multires> multires_;  // Null: no subdivision levels.
+    int level_ = 0;
+    std::uint64_t topologyId_ = NewTopologyId();
+    struct Surface {
+        int level = 0;
+        std::uint64_t topologyId = 0;
+        std::vector<Point3> positions;  // By MNMesh vertex index.
+    } surface_;
+
     static SculptMeshObject* editedObject_;
     static IObjParam* editInterface_;
     static MoveModBoxCMode* moveMode_;
@@ -150,7 +200,8 @@ private:
     static SquashModBoxCMode* squashMode_;
 };
 
-// Undo record for any sculpt change (MNMesh indices).
+// Undo record for any sculpt change (MNMesh indices). Ignored if the object's
+// topology/level changed in a way the undo stack did not restore.
 class SculptDeltaRestore : public RestoreObj {
 public:
     SculptDeltaRestore(SculptMeshObject* object, sculpt::StrokeDelta delta, MSTR name);
@@ -163,4 +214,13 @@ private:
     SculptMeshObject* object_;
     sculpt::StrokeDelta delta_;
     MSTR name_;
+    std::uint64_t stamp_;
+};
+
+struct SculptMeshObject::State {
+    MNMesh mesh;
+    SculptAttributes attributes;
+    std::unique_ptr<sculpt::Multires> multires;
+    int level = 0;
+    std::uint64_t topologyId = 0;
 };

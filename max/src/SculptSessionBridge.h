@@ -47,6 +47,9 @@ public:
     sculpt::SculptSession& Session() { return session_; }
     const sculpt::SculptSession& Session() const { return session_; }
 
+    // Per-MNMesh-vertex positions -> per-session-vertex positions.
+    std::vector<sculpt::Vec3> PositionsToCore(const std::vector<Point3>& maxPositions) const;
+
     int ToMaxVertex(std::uint32_t coreIndex) const { return coreToMaxVert_[coreIndex]; }
     int ToMaxFace(std::uint32_t coreIndex) const { return coreToMaxFace_[coreIndex]; }
 

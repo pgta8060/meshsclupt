@@ -56,6 +56,10 @@ enum class Prop : int {
     ColorAR, ColorAG, ColorAB,
     ColorBR, ColorBG, ColorBB,
     MenusOpen,     // Floating Sculpt Mesh menus are shown with the Modify panel.
+    MultiresUseMaterials,   // New levels keep material-ID borders sharp.
+    MultiresUseSmoothing,   // New levels keep smoothing-group borders sharp.
+    Autosmooth,             // Auto Smooth after level changes / topology tools (else faceted).
+    AutosmoothAngle,        // Degrees.
     Count
 };
 

@@ -4,10 +4,13 @@ add_library(SculptCore STATIC
   src/bvh.cpp
   src/display_chunks.cpp
   src/mesh.cpp
+  src/multires.cpp
   src/parallel.cpp
+  src/poly.cpp
   src/session.cpp
   src/session_ops.cpp
   src/stroke.cpp
+  src/subdivide.cpp
   src/symmetry.cpp
 )
 target_include_directories(SculptCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -25,6 +28,7 @@ if(SCULPT_BUILD_TESTS)
     tests/test_features.cpp
     tests/test_math.cpp
     tests/test_mesh.cpp
+    tests/test_multires.cpp
     tests/test_session.cpp
     tests/test_stroke.cpp
   )

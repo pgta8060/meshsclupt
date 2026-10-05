@@ -32,6 +32,11 @@ TEST_CASE(features_every_available_brush_moves_and_undoes) {
             for (std::uint32_t f = 0; f < keys.size(); ++f) keys[f] = session.mesh().faceCenter(f).x > 0.0f ? 1u : 2u;
             session.autoGroups(AutoGroupMode::MaterialIDs, &keys);
         }
+        if (type == BrushType::Revert) {  // Revert needs a snapshot to pull toward.
+            std::vector<Vec3> reference = session.mesh().positions();
+            for (Vec3& p : reference) p.z += 1.0f;
+            session.setReferencePositions(reference);
+        }
         const std::vector<Vec3> original = session.mesh().positions();
         BrushSettings s;
         s.type = type;

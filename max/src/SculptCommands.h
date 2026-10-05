@@ -52,6 +52,15 @@ bool Run(Op op);
 // Runs an operation or tool command by its script name, e.g. "maskInvert".
 bool RunByName(const std::string& name);
 
+// --- Multires and Surface Snapshot (errors are shown to the user) -------------------
+bool SetMultiresLevel(int level);
+bool SubdivideLevel();
+bool DeleteLowerLevels();
+bool DeleteHigherLevels();
+bool ReverseSubdivision();
+void CaptureSurface();
+void ClearSurface();
+
 // --- W / E / R -------------------------------------------------------------------------
 // With a usable mask the unmasked region is transformed (sub-object level
 // "Transform"); otherwise the normal Move/Rotate/Scale command is used.

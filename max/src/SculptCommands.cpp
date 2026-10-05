@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
+#include <functional>
 #include <vector>
 
 #include <MaxDirectories.h>
@@ -10,6 +11,7 @@
 
 #include "SculptMeshObject.h"
 #include "SculptMode.h"
+#include "SculptUI.h"
 #include "sculpt/session.h"
 
 namespace SculptCommands {
@@ -196,6 +198,18 @@ bool RunByName(const std::string& name) {
     for (int i = 0; i < static_cast<int>(Op::Count); ++i)
         if (EqualsNoCase(name, kOps[i].scriptName)) return Run(static_cast<Op>(i));
     if (EqualsNoCase(name, "startSculpt")) return StartSculpting();
+    if (EqualsNoCase(name, "subdivide")) return SubdivideLevel();
+    if (EqualsNoCase(name, "deleteLower")) return DeleteLowerLevels();
+    if (EqualsNoCase(name, "deleteHigher")) return DeleteHigherLevels();
+    if (EqualsNoCase(name, "reverseSubdivision")) return ReverseSubdivision();
+    if (EqualsNoCase(name, "captureSurface")) {
+        CaptureSurface();
+        return true;
+    }
+    if (EqualsNoCase(name, "clearSurface")) {
+        ClearSurface();
+        return true;
+    }
     if (EqualsNoCase(name, "select")) {
         StopSculpting();
         return true;
@@ -211,6 +225,59 @@ bool RunByName(const std::string& name) {
         }
     }
     return false;
+}
+
+// --- Multires and Surface Snapshot -------------------------------------------------------------
+
+namespace {
+
+bool RunObjectCommand(const std::function<bool(SculptMeshObject&, MSTR&)>& command) {
+    SculptMeshObject* object = Target();
+    if (!object) {
+        Prompt(GetString(IDS_ERR_SELECT_ONE));
+        return false;
+    }
+    if (SculptMode::Get().StrokeActive()) return false;
+    MSTR error;
+    const bool ok = command(*object, error);
+    if (!ok && error.Length() > 0) {
+        Interface* core = GetCOREInterface();
+        MessageBoxW(core ? core->GetMAXHWnd() : nullptr, error.data(), L"Sculpt Mesh", MB_OK | MB_ICONINFORMATION);
+    }
+    if (Interface* core = GetCOREInterface()) core->RedrawViews(core->GetTime());
+    return ok;
+}
+
+}  // namespace
+
+bool SetMultiresLevel(int level) {
+    return RunObjectCommand([level](SculptMeshObject& o, MSTR& e) { return o.SetMultiresLevel(level, e); });
+}
+
+bool SubdivideLevel() {
+    return RunObjectCommand([](SculptMeshObject& o, MSTR& e) { return o.SubdivideLevel(e); });
+}
+
+bool DeleteLowerLevels() {
+    return RunObjectCommand([](SculptMeshObject& o, MSTR& e) { return o.DeleteLowerLevels(e); });
+}
+
+bool DeleteHigherLevels() {
+    return RunObjectCommand([](SculptMeshObject& o, MSTR& e) { return o.DeleteHigherLevels(e); });
+}
+
+bool ReverseSubdivision() {
+    return RunObjectCommand([](SculptMeshObject& o, MSTR& e) { return o.ReverseSubdivision(e); });
+}
+
+void CaptureSurface() {
+    if (SculptMeshObject* object = Target()) object->CaptureSurface();
+    SculptUI::Refresh();
+}
+
+void ClearSurface() {
+    if (SculptMeshObject* object = Target()) object->ClearSurface();
+    SculptUI::Refresh();
 }
 
 // --- W / E / R ---------------------------------------------------------------------------------

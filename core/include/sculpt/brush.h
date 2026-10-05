@@ -30,7 +30,7 @@ enum class BrushType : int {
     FaceGroups = 13,        // Paint SculptGroup ids.
     SmoothGroupBorder = 14, // Smooth only SculptGroup borders.
     Density = 15,           // (later phase)
-    Revert = 16,            // (later phase)
+    Revert = 16,            // Toward the Surface Snapshot.
     Clip = 17,              // (later phase)
     Cutter = 18,            // (later phase)
     Slice = 19,             // (later phase)
@@ -156,6 +156,7 @@ struct DabTarget {
     const std::vector<float>* mask = nullptr;   // Per-vertex 0..1 protection (may be null).
     const std::uint8_t* hiddenTriangles = nullptr;
     const std::vector<std::uint8_t>* groupBorder = nullptr;  // SmoothGroupBorder: per-vertex flag.
+    const std::vector<Vec3>* reference = nullptr;            // Revert: Surface Snapshot positions.
 };
 
 // Applies one dab of a geometry brush. Normals and the BVH are NOT updated:

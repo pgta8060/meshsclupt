@@ -15,6 +15,8 @@ add_library(SculptMeshMax SHARED
   src/ConvertToSculpt.cpp
   src/DllEntry.cpp
   src/MultiresRollout.cpp
+  src/PolyConvert.cpp
+  src/RowsRollup.cpp
   src/SculptActions.cpp
   src/SculptCommands.cpp
   src/SculptDisplay.cpp

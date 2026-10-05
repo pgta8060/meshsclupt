@@ -77,6 +77,9 @@ public:
         kSetMenusOpen,
         kResetSettings,
         kSaveSettings,
+        kGetLevel,
+        kSetLevel,
+        kGetTopLevel,
     };
     enum EnumId { kBrushEnum };
 
@@ -101,6 +104,8 @@ public:
         PROP_FNS(kGetMenusOpen, GetMenusOpen, kSetMenusOpen, SetMenusOpen, TYPE_bool)
         VFN_0(kResetSettings, ResetSettings)
         VFN_0(kSaveSettings, SaveSettings)
+        PROP_FNS(kGetLevel, GetLevel, kSetLevel, SetLevel, TYPE_INT)
+        RO_PROP_FN(kGetTopLevel, GetTopLevel, TYPE_INT)
     END_FUNCTION_MAP
 
     // Starts sculpting the selected Sculpt Mesh (opens the Modify panel if needed).
@@ -169,6 +174,11 @@ public:
     bool GetMenusOpen() { return SculptUI::IsWanted(); }
     void SetMenusOpen(bool open) { open ? SculptUI::Open() : SculptUI::Close(); }
     void ResetSettings() { SculptSettings::Get().ResetToDefaults(); }
+    int GetLevel() { return SculptMeshObject::EditedObject() ? SculptMeshObject::EditedObject()->MultiresLevel() : 0; }
+    void SetLevel(int level) { SculptCommands::SetMultiresLevel(level); }
+    int GetTopLevel() {
+        return SculptMeshObject::EditedObject() ? SculptMeshObject::EditedObject()->MultiresTopLevel() : 0;
+    }
     void SaveSettings() { SculptCommands::SaveSettings(); }
 };
 
@@ -203,6 +213,8 @@ SculptMeshInterface theSculptMeshInterface(
         SculptMeshInterface::kGetBackfaceCull, SculptMeshInterface::kSetBackfaceCull, _T("BackfaceCull"), 0, TYPE_bool,
         SculptMeshInterface::kGetVersion, FP_NO_FUNCTION, _T("Version"), 0, TYPE_TSTR_BV,
         SculptMeshInterface::kGetMenusOpen, SculptMeshInterface::kSetMenusOpen, _T("MenusOpen"), 0, TYPE_bool,
+        SculptMeshInterface::kGetLevel, SculptMeshInterface::kSetLevel, _T("MultiresLevel"), 0, TYPE_INT,
+        SculptMeshInterface::kGetTopLevel, FP_NO_FUNCTION, _T("MultiresTopLevel"), 0, TYPE_INT,
 
     enums,
         SculptMeshInterface::kBrushEnum, 25,

@@ -79,7 +79,8 @@ public:
     FloatingWindow& operator=(const FloatingWindow&) = delete;
     virtual ~FloatingWindow();
 
-    bool Create(HWND owner);
+    bool Create(HWND owner);           // Floating, non-activating popup.
+    bool CreateChild(HWND parent);     // Child control (e.g. inside a Modify-panel rollout).
     void Destroy();
     HWND Hwnd() const { return hwnd_; }
     bool Visible() const { return hwnd_ && IsWindowVisible(hwnd_); }
@@ -107,8 +108,10 @@ protected:
     HWND hwnd_ = nullptr;
     int cornerRadius_ = 0;  // Rounded window corners (pixels), applied by SetBounds.
 
-private:
+public:
     static LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
+
+private:
     LRESULT Handle(UINT msg, WPARAM wp, LPARAM lp);
     bool tracking_ = false;
 };
@@ -122,6 +125,7 @@ public:
         std::function<void()> click;
         std::function<bool()> checked;  // Optional: toggle look.
         std::function<bool()> enabled;  // Optional.
+        std::function<std::wstring()> text;  // Optional: label that changes.
     };
     struct SliderSpec {
         std::wstring label;
@@ -133,6 +137,9 @@ public:
         float defaultValue = 0.0f;  // Right-click resets.
         int decimals = 2;
         bool quadratic = false;  // Finer control near the minimum (brush size).
+        bool applyOnRelease = false;          // Expensive settings: set() once, on release.
+        std::function<float()> dynamicMax;    // Optional: range end that changes (also limits typing).
+        std::function<std::wstring(float)> format;  // Optional value text.
     };
 
     void Clear() { rows_.clear(); }
@@ -197,6 +204,7 @@ private:
     static RECT SliderValue(const RECT& r);
     static float ToT(const SliderSpec& s, float v);
     static float FromT(const SliderSpec& s, float t);
+    static float MaxOf(const SliderSpec& s) { return s.dynamicMax ? s.dynamicMax() : s.max; }
     void SetSliderFromX(const Row& row, const RECT& rect, int x);
     void BeginEdit(HWND host, int row, const RECT& valueRect);
     static int ButtonAt(const Row& row, const RECT& r, int x);
@@ -208,6 +216,7 @@ private:
     mutable POINT origin_ = {0, 0};
     int drag_ = -1;          // Row whose slider is being dragged.
     RECT dragRect_{};
+    float pending_ = 0.0f;   // Value shown while dragging an applyOnRelease slider.
     int hotRow_ = -1;
     int hotButton_ = -1;
     int pressedRow_ = -1;

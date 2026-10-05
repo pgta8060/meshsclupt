@@ -68,6 +68,11 @@ public:
     // Per-vertex flag: vertex touches polygons of two or more SculptGroups.
     const std::vector<std::uint8_t>& groupBorderVertices();
 
+    // --- Surface Snapshot (Revert brush) -------------------------------------------
+    // Positions the Revert brush pulls toward; empty or wrong size: Revert does nothing.
+    void setReferencePositions(std::vector<Vec3> positions) { reference_ = std::move(positions); }
+    bool hasReference() const { return reference_.size() == mesh_.vertexCount() && !reference_.empty(); }
+
     // --- Symmetry ---------------------------------------------------------------
     // Dabs are repeated once per transform; the first should be identity.
     void setSymmetry(std::vector<Mat3> transforms);
@@ -153,6 +158,7 @@ private:
     std::vector<std::uint32_t> moved_;
     std::vector<std::uint32_t> movedTris_;
     std::vector<Mat3> symmetry_{Mat3::identity()};
+    std::vector<Vec3> reference_;
 
     std::vector<float> mask_;
     bool hasMask_ = false;

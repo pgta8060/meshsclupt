@@ -204,3 +204,13 @@ std::vector<std::uint64_t> SculptSessionBridge::FaceKeys(const MNMesh& mesh, scu
     }
     return keys;
 }
+
+std::vector<sculpt::Vec3> SculptSessionBridge::PositionsToCore(const std::vector<Point3>& maxPositions) const {
+    std::vector<sculpt::Vec3> out;
+    out.reserve(coreToMaxVert_.size());
+    for (int m : coreToMaxVert_) {
+        if (m < 0 || static_cast<std::size_t>(m) >= maxPositions.size()) return {};
+        out.push_back(ToVec3(maxPositions[static_cast<std::size_t>(m)]));
+    }
+    return out;
+}

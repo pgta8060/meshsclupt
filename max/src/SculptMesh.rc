@@ -7,14 +7,11 @@ LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
 /////////////////////////////////////////////////////////////////////////////
 // Modify-panel rollout
 
-IDD_MULTIRES DIALOGEX 0, 0, 108, 104
+// Empty page: the rows are drawn by a child window sized to its content.
+IDD_ROWS_ROLLUP DIALOGEX 0, 0, 108, 20
 STYLE DS_SETFONT | WS_CHILD | WS_VISIBLE
 FONT 8, "MS Sans Serif", 0, 0, 0x0
 BEGIN
-    CONTROL         "Open Sculpt Mesh Menus", IDC_MENUS_BUTTON, "CustButton", WS_TABSTOP, 4, 4, 100, 14
-    CONTROL         "Sculpt", IDC_SCULPT_BUTTON, "CustButton", WS_TABSTOP, 4, 22, 100, 14
-    LTEXT           "", IDC_INFO_TEXT, 6, 42, 98, 8
-    LTEXT           "", IDC_HELP_TEXT, 6, 54, 98, 48
 END
 
 /////////////////////////////////////////////////////////////////////////////
@@ -74,6 +71,18 @@ BEGIN
     IDS_ACT_SCALE           "Scale (mask aware)"
     IDS_ACT_GROUP_FROM_MASK "SculptGroup from Mask"
     IDS_ACT_TOGGLE_MENUS    "Open/Close Sculpt Mesh Menus"
+    IDS_UNDO_LEVEL          "Multires Level"
+    IDS_ERR_LEVEL           "Sculpt Mesh: that Multires level does not exist."
+    IDS_ERR_SUBDIVIDE_TOP   "Sculpt Mesh: go to the highest level to add a new one."
+    IDS_ERR_TOO_DENSE       "Sculpt Mesh: the next level would have too many polygons."
+    IDS_UNDO_SUBDIVIDE      "Subdivide Level"
+    IDS_UNDO_DELETE_LOWER   "Delete Lower Levels"
+    IDS_UNDO_DELETE_HIGHER  "Delete Higher Levels"
+    IDS_ERR_REVERSE         "Sculpt Mesh: level 0 is not a subdivided quad mesh, so no lower level can be rebuilt."
+    IDS_UNDO_REVERSE        "Reverse Subdivision"
+    IDS_SURFACE_NONE        "No surface captured"
+    IDS_SURFACE_OTHER       "Captured on another level or topology"
+    IDS_SURFACE_FORMAT      "Captured: level %d, %d vertices"
 END
 
 /////////////////////////////////////////////////////////////////////////////

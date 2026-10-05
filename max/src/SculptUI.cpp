@@ -762,6 +762,15 @@ private:
         r.Slider(PropSlider(L"Radial Count", Prop::RadialCount, 0), [] { return S().Bool(Prop::RadialMirror); });
         r.Choice(L"Radial Axis", {L"X", L"Y", L"Z"}, [] { return S().Int(Prop::RadialAxis); },
                  [](int i) { S().Set(Prop::RadialAxis, static_cast<float>(i)); }, [] { return S().Bool(Prop::RadialMirror); });
+
+        r.Section(L"Surface Snapshot", false);
+        r.Buttons({{L"Capture Surface", [] { SculptCommands::CaptureSurface(); }, {}, {}, {}},
+                   {L"Clear", [] { SculptCommands::ClearSurface(); }, {},
+                    [] { return SculptMeshObject::EditedObject() && SculptMeshObject::EditedObject()->HasSurface(); }, {}}});
+        r.Note([] {
+            SculptMeshObject* object = SculptMeshObject::EditedObject();
+            return object ? std::wstring(object->SurfaceStatus().data()) : std::wstring();
+        });
     }
 
     RowList rows_;
@@ -1091,7 +1100,6 @@ public:
         }
         CacheDisplayState();
         SculptMode::Get().RefreshCursor();
-        MultiresRollout::Refresh();
     }
 
 private:

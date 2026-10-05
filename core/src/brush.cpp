@@ -166,7 +166,7 @@ const BrushInfo& brushInfo(BrushType type) {
         {"Face groups", "faceGroups", true, false, false, 1.0f, true, false},
         {"Smooth SG Border", "smoothGroupBorder", true, false, false, 0.5f, true, true},
         {"Density", "density", false, true, false, 0.5f, true, true},
-        {"Revert", "revert", false, false, false, 0.5f, true, true},
+        {"Revert", "revert", true, false, false, 0.5f, true, true},
         {"Clip", "clip", false, false, false, 1.0f, false, false},
         {"Cutter", "cutter", false, false, false, 1.0f, false, false},
         {"Slice", "slice", false, false, false, 1.0f, false, false},
@@ -334,6 +334,15 @@ std::size_t applyDab(DabTarget& t, const BrushSettings& settings, const Dab& dab
                 const std::uint32_t v = s.verts[i];
                 const Vec3& p = mesh.position(v);
                 s.targets[i] = p + (smoothTarget(mesh, v) - p) * clamp01(std::fabs(s.weights[i]) * kSmoothRate);
+            });
+            break;
+        case BrushType::Revert:
+            // Back toward the captured Surface Snapshot (no snapshot: no effect).
+            if (!t.reference || t.reference->size() != mesh.vertexCount()) return 0;
+            forEach(kept, [&](std::size_t i) {
+                const std::uint32_t v = s.verts[i];
+                const Vec3& p = mesh.position(v);
+                s.targets[i] = p + ((*t.reference)[v] - p) * clamp01(std::fabs(s.weights[i]) * kSmoothRate);
             });
             break;
         case BrushType::SmoothGroupBorder:

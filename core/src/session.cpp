@@ -183,6 +183,7 @@ std::size_t SculptSession::applyDab(const BrushSettings& settings, const Dab& da
         target.mask = hasMask_ ? &mask_ : nullptr;
         target.hiddenTriangles = hiddenTriangles();
         if (settings.type == BrushType::SmoothGroupBorder) target.groupBorder = &groupBorderVertices();
+        if (settings.type == BrushType::Revert) target.reference = &reference_;
         changed += sculpt::applyDab(target, settings, d);
         // Refresh normals/BVH per copy: the next copy may overlap this one.
         commitMoved();

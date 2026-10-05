@@ -58,6 +58,10 @@ const PropInfo kProps[] = {
     {"colorBG", 0, 1, 0, false, false},
     {"colorBB", 0, 1, 0, false, false},
     {"menusOpen", 0, 1, 1, true, false},
+    {"multiresUseMaterials", 0, 1, 0, true, false},
+    {"multiresUseSmoothing", 0, 1, 0, true, false},
+    {"autosmooth", 0, 1, 1, true, false},
+    {"autosmoothAngle", 0, 180, 45, false, false},
 };
 static_assert(sizeof(kProps) / sizeof(kProps[0]) == static_cast<std::size_t>(kPropCount), "PropInfo table out of sync");
 

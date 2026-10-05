@@ -20,6 +20,7 @@ namespace ui {
 namespace {
 
 const wchar_t kWindowClass[] = L"SculptMeshFloatingWindow";
+LRESULT CALLBACK FloatingWindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
 
 Theme theme;
 bool themeReady = false;
@@ -83,6 +84,10 @@ float IconHeight(sculpt::BrushType b, float u, float v) {
             return h;
         }
         case BrushType::SmoothGroupBorder: return 0.0f;
+        case BrushType::Revert: {  // A ridge fading back to the plain surface.
+            const float rr = std::sqrt(r2);
+            return 0.16f * std::exp(-(rr - 0.42f) * (rr - 0.42f) / 0.006f) * (0.4f + 0.6f * Smoothstep(-0.6f, 0.6f, u));
+        }
         default: return 0.0f;
     }
 }
@@ -467,22 +472,37 @@ bool PickColor(float rgb[3]) {
 
 FloatingWindow::~FloatingWindow() { Destroy(); }
 
+namespace {
+
+bool RegisterWindowClass() {
+    static bool registered = false;
+    if (registered) return true;
+    WNDCLASSEXW wc = {};
+    wc.cbSize = sizeof(wc);
+    wc.style = CS_DBLCLKS;
+    wc.lpfnWndProc = &FloatingWindowProc;
+    wc.hInstance = hInstance;
+    wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    wc.lpszClassName = kWindowClass;
+    registered = RegisterClassExW(&wc) != 0 || GetLastError() == ERROR_CLASS_ALREADY_EXISTS;
+    return registered;
+}
+
+}  // namespace
+
 bool FloatingWindow::Create(HWND owner) {
     if (hwnd_) return true;
-    static bool registered = false;
-    if (!registered) {
-        WNDCLASSEXW wc = {};
-        wc.cbSize = sizeof(wc);
-        wc.style = CS_DBLCLKS;
-        wc.lpfnWndProc = &FloatingWindow::Proc;
-        wc.hInstance = hInstance;
-        wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
-        wc.lpszClassName = kWindowClass;
-        registered = RegisterClassExW(&wc) != 0 || GetLastError() == ERROR_CLASS_ALREADY_EXISTS;
-        if (!registered) return false;
-    }
+    if (!RegisterWindowClass()) return false;
     hwnd_ = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, kWindowClass, L"", WS_POPUP | WS_CLIPCHILDREN, 0, 0,
                             10, 10, owner, nullptr, hInstance, this);
+    return hwnd_ != nullptr;
+}
+
+bool FloatingWindow::CreateChild(HWND parent) {
+    if (hwnd_) return true;
+    if (!RegisterWindowClass()) return false;
+    hwnd_ = CreateWindowExW(0, kWindowClass, L"", WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS, 0, 0, 10, 10, parent, nullptr,
+                            hInstance, this);
     return hwnd_ != nullptr;
 }
 
@@ -727,14 +747,15 @@ RECT RowList::SliderTrack(const RECT& r) {
 }
 
 float RowList::ToT(const SliderSpec& s, float v) {
-    const float t = (std::min(std::max(v, s.min), s.max) - s.min) / std::max(s.max - s.min, 1e-6f);
+    const float hi = MaxOf(s);
+    const float t = (std::min(std::max(v, s.min), hi) - s.min) / std::max(hi - s.min, 1e-6f);
     return s.quadratic ? std::sqrt(t) : t;
 }
 
 float RowList::FromT(const SliderSpec& s, float t) {
     t = std::min(std::max(t, 0.0f), 1.0f);
     if (s.quadratic) t *= t;
-    float v = s.min + t * (s.max - s.min);
+    float v = s.min + t * (MaxOf(s) - s.min);
     if (s.decimals == 0) v = std::round(v);
     return v;
 }
@@ -789,7 +810,7 @@ void RowList::Paint(HDC dc, const RECT& area, int scroll) const {
                 RECT label = {r.left + Px(8), r.top, SliderTrack(r).left - Px(4), r.bottom};
                 Text(dc, label, s.label, t.text, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
                 const RECT track = SliderTrack(r);
-                const float value = s.get ? s.get() : 0.0f;
+                const float value = (drag_ == p.row && s.applyOnRelease) ? pending_ : (s.get ? s.get() : 0.0f);
                 RoundBox(dc, track, Px(4), t.track, t.track);
                 RECT fill = track;
                 fill.right = track.left + static_cast<int>(std::lround((track.right - track.left) * ToT(s, value)));
@@ -802,7 +823,8 @@ void RowList::Paint(HDC dc, const RECT& area, int scroll) const {
                 Frame(dc, box, t.border);
                 RECT text = box;
                 text.right -= Px(3);
-                Text(dc, text, FormatValue(value, s.decimals), t.text, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
+                Text(dc, text, s.format ? s.format(value) : FormatValue(value, s.decimals), t.text,
+                     DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
                 break;
             }
             case Kind::Check: {
@@ -826,7 +848,7 @@ void RowList::Paint(HDC dc, const RECT& area, int scroll) const {
                     COLORREF fill = checked ? t.accent : (hot && hotButton_ == i && enabled ? t.buttonHot : t.button);
                     if (pressed) fill = Blend(fill, t.accent, 0.5f);
                     RoundBox(dc, b, Px(4), fill, t.border);
-                    Text(dc, b, button.label, enabled ? (checked ? t.accentText : t.text) : t.textDim,
+                    Text(dc, b, button.text ? button.text() : button.label, enabled ? (checked ? t.accentText : t.text) : t.textDim,
                          DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
                 }
                 break;
@@ -889,7 +911,11 @@ int RowList::HitRow(int x, int y, int scroll, RECT* rect) const {
 void RowList::SetSliderFromX(const Row& row, const RECT& rect, int x) {
     const RECT track = SliderTrack(rect);
     const float t = static_cast<float>(x - track.left) / static_cast<float>(std::max<LONG>(1, track.right - track.left));
-    if (row.slider.set) row.slider.set(FromT(row.slider, t));
+    const float value = FromT(row.slider, t);
+    if (row.slider.applyOnRelease)
+        pending_ = value;
+    else if (row.slider.set)
+        row.slider.set(value);
 }
 
 bool RowList::MouseDown(HWND host, int x, int y, bool /*doubleClick*/, int scroll) {
@@ -987,7 +1013,10 @@ bool RowList::MouseMove(int x, int y, bool captured, int scroll) {
 
 bool RowList::MouseUp(int x, int y, int scroll) {
     if (drag_ >= 0) {
+        const int row = drag_;
         drag_ = -1;
+        const SliderSpec& s = rows_[static_cast<std::size_t>(row)].slider;
+        if (s.applyOnRelease && s.set) s.set(pending_);
         return true;
     }
     if (pressedRow_ < 0) return false;
@@ -1047,7 +1076,8 @@ void RowList::FinishEdit(bool commit) {
         wchar_t* end = nullptr;
         const float v = std::wcstof(buffer, &end);
         const SliderSpec& s = rows_[static_cast<std::size_t>(editRow_)].slider;
-        if (end != buffer && std::isfinite(v) && s.set) s.set(std::min(std::max(v, s.min), std::max(s.max, s.typeMax)));
+        if (end != buffer && std::isfinite(v) && s.set)
+            s.set(std::min(std::max(v, s.min), s.dynamicMax ? s.dynamicMax() : std::max(s.max, s.typeMax)));
     }
     RemoveWindowSubclass(edit, EditProc, 1);
     DestroyWindow(edit);
@@ -1059,5 +1089,11 @@ void RowList::FinishEdit(bool commit) {
     editRow_ = -1;
     if (editHost_) InvalidateRect(editHost_, nullptr, FALSE);
 }
+
+namespace {
+LRESULT CALLBACK FloatingWindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    return FloatingWindow::Proc(hwnd, msg, wp, lp);
+}
+}  // namespace
 
 }  // namespace ui
