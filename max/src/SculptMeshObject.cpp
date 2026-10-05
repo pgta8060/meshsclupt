@@ -3,20 +3,63 @@
 #include <algorithm>
 
 #include <MNNormalSpec.h>
+#include <objmode.h>
 
 #include "SculptMode.h"
 #include "SculptPanel.h"
+#include "SculptSettings.h"
 
 namespace {
 
 // Chunk IDs inside a Sculpt Mesh object. Append new IDs; never reuse.
 constexpr USHORT kVersionChunk = 0x5C00;
 constexpr USHORT kPolyDataChunk = 0x5C10;
+constexpr USHORT kMaskChunk = 0x5C20;
+constexpr USHORT kGroupsChunk = 0x5C21;
+constexpr USHORT kHiddenChunk = 0x5C22;
+
+template <class T>
+IOResult WriteArray(ISave* isave, USHORT id, const std::vector<T>& values) {
+    ULONG written = 0;
+    const DWORD count = static_cast<DWORD>(values.size());
+    isave->BeginChunk(id);
+    IOResult res = isave->Write(&count, sizeof(count), &written);
+    if (res == IO_OK && count > 0)
+        res = isave->Write(values.data(), static_cast<ULONG>(sizeof(T) * values.size()), &written);
+    isave->EndChunk();
+    return res;
+}
+
+template <class T>
+IOResult ReadArray(ILoad* iload, std::vector<T>& values) {
+    ULONG read = 0;
+    DWORD count = 0;
+    IOResult res = iload->Read(&count, sizeof(count), &read);
+    if (res != IO_OK) return res;
+    if (count > 0x7fffffffu / sizeof(T)) return IO_ERROR;  // Corrupt size.
+    values.resize(count);
+    if (count > 0) res = iload->Read(values.data(), static_cast<ULONG>(sizeof(T) * count), &read);
+    return res;
+}
+
+GenSubObjType& TransformSubObjType() {
+    static GenSubObjType type(MSTR(_T("Transform")), MSTR(_T("SubObjectIcons")), 1);
+    return type;
+}
 
 }  // namespace
 
 SculptMeshObject* SculptMeshObject::editedObject_ = nullptr;
 IObjParam* SculptMeshObject::editInterface_ = nullptr;
+MoveModBoxCMode* SculptMeshObject::moveMode_ = nullptr;
+RotateModBoxCMode* SculptMeshObject::rotateMode_ = nullptr;
+UScaleModBoxCMode* SculptMeshObject::uscaleMode_ = nullptr;
+NUScaleModBoxCMode* SculptMeshObject::nuscaleMode_ = nullptr;
+SquashModBoxCMode* SculptMeshObject::squashMode_ = nullptr;
+
+// Defined in SculptActions.cpp (keyboard shortcuts).
+int SculptActionTableCount();
+ActionTable* SculptActionTable(int i);
 
 // --- Class descriptor -------------------------------------------------------------
 
@@ -31,6 +74,8 @@ public:
     const TCHAR* Category() override { return GetString(IDS_CATEGORY); }
     const TCHAR* InternalName() override { return _T("SculptMeshObject"); }
     HINSTANCE HInstance() override { return hInstance; }
+    int NumActionTables() override { return SculptActionTableCount(); }
+    ActionTable* GetActionTable(int i) override { return SculptActionTable(i); }
 };
 
 ClassDesc2* GetSculptMeshObjectDesc() {
@@ -76,6 +121,7 @@ RefTargetHandle SculptMeshObject::Clone(RemapDir& remap) {
     SculptMeshObject* copy = new SculptMeshObject();
     copy->mm = mm;
     copy->InitFromPoly(*this);
+    copy->attributes_ = attributes_;
     BaseClone(this, copy, remap);
     return copy;
 }
@@ -89,31 +135,51 @@ IOResult SculptMeshObject::Save(ISave* isave) {
     if (res != IO_OK) return res;
 
     // The PolyObject data (geometry, UVs, materials, ...) lives in its own
-    // container chunk so future versions can add sibling chunks safely.
+    // container chunk so versions can add sibling chunks safely.
     isave->BeginChunk(kPolyDataChunk);
     res = PolyObject::Save(isave);
     isave->EndChunk();
-    return res;
+    if (res != IO_OK) return res;
+
+    if (attributes_.Matches(mm)) {
+        const auto& a = attributes_;
+        if (std::any_of(a.mask.begin(), a.mask.end(), [](float m) { return m > 0.0f; }) &&
+            (res = WriteArray(isave, kMaskChunk, a.mask)) != IO_OK)
+            return res;
+        if (std::any_of(a.groups.begin(), a.groups.end(), [](std::int32_t g) { return g != 0; }) &&
+            (res = WriteArray(isave, kGroupsChunk, a.groups)) != IO_OK)
+            return res;
+        if (std::any_of(a.hidden.begin(), a.hidden.end(), [](std::uint8_t h) { return h != 0; }) &&
+            (res = WriteArray(isave, kHiddenChunk, a.hidden)) != IO_OK)
+            return res;
+    }
+    return IO_OK;
 }
 
 IOResult SculptMeshObject::Load(ILoad* iload) {
     ULONG read = 0;
     DWORD version = 0;
     IOResult res = IO_OK;
+    SculptAttributes loaded;
     while ((res = iload->OpenChunk()) == IO_OK) {
         switch (iload->CurChunkID()) {
-            case kVersionChunk:
-                res = iload->Read(&version, sizeof(version), &read);
-                break;
-            case kPolyDataChunk:
-                res = PolyObject::Load(iload);
-                break;
-            default:
-                break;  // Chunk from a newer version: skip it, keep the rest.
+            case kVersionChunk: res = iload->Read(&version, sizeof(version), &read); break;
+            case kPolyDataChunk: res = PolyObject::Load(iload); break;
+            case kMaskChunk: res = ReadArray(iload, loaded.mask); break;
+            case kGroupsChunk: res = ReadArray(iload, loaded.groups); break;
+            case kHiddenChunk: res = ReadArray(iload, loaded.hidden); break;
+            default: break;  // Chunk from a newer version: skip it, keep the rest.
         }
         iload->CloseChunk();
         if (res != IO_OK) return res;
     }
+    // Keep each attribute only if it fits the loaded mesh (a damaged or
+    // mismatched array is dropped rather than misapplied).
+    attributes_ = SculptAttributes();
+    attributes_.Fit(mm);
+    if (loaded.mask.size() == attributes_.mask.size()) attributes_.mask = loaded.mask;
+    if (loaded.groups.size() == attributes_.groups.size()) attributes_.groups = loaded.groups;
+    if (loaded.hidden.size() == attributes_.hidden.size()) attributes_.hidden = loaded.hidden;
     ReleaseSession();
     return IO_OK;
 }
@@ -122,12 +188,36 @@ void SculptMeshObject::BeginEditParams(IObjParam* ip, ULONG flags, Animatable* p
     PolyObject::BeginEditParams(ip, flags, prev);
     editedObject_ = this;
     editInterface_ = ip;
+    if (!moveMode_) {
+        moveMode_ = new MoveModBoxCMode(this, ip);
+        rotateMode_ = new RotateModBoxCMode(this, ip);
+        uscaleMode_ = new UScaleModBoxCMode(this, ip);
+        nuscaleMode_ = new NUScaleModBoxCMode(this, ip);
+        squashMode_ = new SquashModBoxCMode(this, ip);
+    }
     SculptPanel::Open(ip, this);
 }
 
 void SculptMeshObject::EndEditParams(IObjParam* ip, ULONG flags, Animatable* next) {
     if (SculptMode::Get().Target() == this) SculptMode::Get().Stop();
     SculptPanel::Close(ip);
+    if (moveMode_) {
+        ip->DeleteMode(moveMode_);
+        ip->DeleteMode(rotateMode_);
+        ip->DeleteMode(uscaleMode_);
+        ip->DeleteMode(nuscaleMode_);
+        ip->DeleteMode(squashMode_);
+        delete moveMode_;
+        delete rotateMode_;
+        delete uscaleMode_;
+        delete nuscaleMode_;
+        delete squashMode_;
+        moveMode_ = nullptr;
+        rotateMode_ = nullptr;
+        uscaleMode_ = nullptr;
+        nuscaleMode_ = nullptr;
+        squashMode_ = nullptr;
+    }
     if (editedObject_ == this) {
         editedObject_ = nullptr;
         editInterface_ = nullptr;
@@ -151,7 +241,14 @@ void SculptMeshObject::Deform(Deformer* defProc, int useSel) {
     sessionStale_ = true;
 }
 
+// --- Session ------------------------------------------------------------------------
+
+SculptDisplay::Options SculptMeshObject::DisplayOptions() const {
+    return SculptDisplay::Options{SculptSettings::Get().Bool(Prop::ShowMask), SculptSettings::Get().Bool(Prop::ShowGroups)};
+}
+
 SculptSessionBridge* SculptMeshObject::AcquireSession(MSTR& error) {
+    attributes_.Fit(mm);
     if (bridge_ && !bridge_->Matches(mm)) bridge_.reset();  // Topology changed underneath.
     if (bridge_ && sessionStale_ && !bridge_->Session().strokeActive()) {
         if (!bridge_->SyncFromMesh(mm)) bridge_.reset();
@@ -159,10 +256,10 @@ SculptSessionBridge* SculptMeshObject::AcquireSession(MSTR& error) {
     }
     if (!bridge_) {
         auto bridge = std::make_unique<SculptSessionBridge>();
-        if (!bridge->Build(mm, error)) return nullptr;
+        if (!bridge->Build(mm, attributes_, error)) return nullptr;
         bridge_ = std::move(bridge);
         sessionStale_ = false;
-        if (display_) display_->Build(bridge_->Session().mesh());  // New topology: new chunks.
+        if (display_) display_->Build(bridge_->Session(), DisplayOptions());  // New session: new chunks.
     }
     return bridge_.get();
 }
@@ -173,13 +270,105 @@ void SculptMeshObject::ReleaseSession() {
     sessionStale_ = false;
 }
 
+void SculptMeshObject::CommitSessionChanges() {
+    if (!bridge_) return;
+    sculpt::SculptSession& session = bridge_->Session();
+    const unsigned pushed = bridge_->PushDirty(mm, attributes_);
+    if (display_) {
+        if ((pushed & (SculptSessionBridge::kGroups | SculptSessionBridge::kVisibility)) != 0u) {
+            display_->Build(session, DisplayOptions());  // Chunk layout depends on groups/visibility.
+        } else {
+            if (session.displayAllDirty())
+                display_->MarkAll();
+            else
+                display_->MarkVertices(session.displayDirtyVertices());
+            display_->MarkVertices(session.maskDirtyVertices());
+        }
+    }
+    session.clearDisplayDirty();
+    session.clearMaskDirty();
+    session.clearVisibilityDirty();
+    if (pushed != 0u) GeometryChanged();
+}
+
+bool SculptMeshObject::RunOperation(const std::function<sculpt::StrokeDelta(SculptSessionBridge&)>& op,
+                                    const MCHAR* undoName) {
+    MSTR error;
+    SculptSessionBridge* bridge = AcquireSession(error);
+    if (!bridge || bridge->Session().strokeActive()) return false;
+    const sculpt::StrokeDelta delta = op(*bridge);
+    if (delta.empty()) return false;
+    CommitSessionChanges();
+    theHold.Begin();
+    PutStrokeUndo(delta, undoName);
+    theHold.Accept(undoName);
+    return true;
+}
+
+void SculptMeshObject::PutStrokeUndo(const sculpt::StrokeDelta& coreDelta, const MCHAR* undoName) {
+    if (!bridge_ || coreDelta.empty() || !coreDelta.consistent() || !theHold.Holding()) return;
+    theHold.Put(new SculptDeltaRestore(this, bridge_->ToMax(coreDelta), MSTR(undoName)));
+}
+
+void SculptMeshObject::ApplyDelta(const sculpt::StrokeDelta& d, bool useBefore) {
+    if (!d.consistent()) return;
+    if (bridge_ && !bridge_->Session().strokeActive()) {
+        sculpt::StrokeDelta core;
+        if (bridge_->ToCore(d, core) && bridge_->Session().applyDelta(core, useBefore)) {
+            CommitSessionChanges();
+            return;
+        }
+    }
+    // No (usable) session: write the mesh and attributes directly.
+    attributes_.Fit(mm);
+    for (std::size_t i = 0; i < d.vertices.size(); ++i) {
+        const int v = static_cast<int>(d.vertices[i]);
+        const sculpt::Vec3& p = useBefore ? d.before[i] : d.after[i];
+        if (v >= 0 && v < mm.numv) mm.v[v].p = ToPoint3(p);
+    }
+    for (std::size_t i = 0; i < d.maskVertices.size(); ++i)
+        if (d.maskVertices[i] < attributes_.mask.size())
+            attributes_.mask[d.maskVertices[i]] = useBefore ? d.maskBefore[i] : d.maskAfter[i];
+    for (std::size_t i = 0; i < d.groupFaces.size(); ++i)
+        if (d.groupFaces[i] < attributes_.groups.size())
+            attributes_.groups[d.groupFaces[i]] = useBefore ? d.groupBefore[i] : d.groupAfter[i];
+    if (d.hasHidden && d.hiddenBefore.size() == attributes_.hidden.size())
+        attributes_.hidden = useBefore ? d.hiddenBefore : d.hiddenAfter;
+    if (bridge_) {
+        // The session no longer matches the attributes: rebuild on next use.
+        const bool hadFastDisplay = fastDisplay_;
+        ReleaseSession();
+        if (hadFastDisplay) {
+            MSTR error;
+            if (AcquireSession(error)) SetFastDisplay(true);
+        }
+    }
+    GeometryChanged();
+}
+
+void SculptMeshObject::GeometryChanged() {
+    if (MNNormalSpec* normals = mm.GetSpecifiedNormals()) normals->ClearFlag(MNNORMAL_NORMALS_COMPUTED);
+    mm.InvalidateGeomCache();
+    NotifyDependents(FOREVER, PART_GEOM | PART_DISPLAY, REFMSG_CHANGE);
+}
+
+// --- Display --------------------------------------------------------------------------
+
+void SculptMeshObject::RefreshDisplayOptions() {
+    if (!display_) return;
+    display_->SetOptions(DisplayOptions());
+    NotifyDependents(FOREVER, PART_DISPLAY, REFMSG_CHANGE);
+}
+
 void SculptMeshObject::SetFastDisplay(bool on) {
+    on = on && SculptSettings::Get().Bool(Prop::SculptMaterialPreview);
     if (on && bridge_) {
         if (!display_) display_ = std::make_unique<SculptDisplay>();
-        display_->Build(bridge_->Session().mesh());
+        display_->Build(bridge_->Session(), DisplayOptions());
         bridge_->Session().clearDisplayDirty();
         fastDisplay_ = true;
     } else {
+        if (!fastDisplay_ && !display_) return;
         display_.reset();
         fastDisplay_ = false;
         mm.InvalidateGeomCache();  // The PolyObject display rebuilds from mm.
@@ -194,7 +383,7 @@ unsigned long SculptMeshObject::GetObjectDisplayRequirement() const {
 
 bool SculptMeshObject::PrepareDisplay(const MaxSDK::Graphics::UpdateDisplayContext& prepareDisplayContext) {
     if (FastDisplay()) {
-        display_->Upload(bridge_->Session().mesh());
+        display_->Upload(bridge_->Session());
         return true;
     }
     return PolyObject::PrepareDisplay(prepareDisplayContext);
@@ -242,56 +431,155 @@ void SculptMeshObject::GetDeformBBox(TimeValue t, Box3& box, Matrix3* tm, BOOL u
     PolyObject::GetDeformBBox(t, box, tm, useSel);
 }
 
-void SculptMeshObject::CommitSessionChanges() {
-    if (!bridge_) return;
-    if (bridge_->PushDirty(mm) == 0) return;
-    GeometryChanged();
+// --- Sub-object Transform (mask-aware W/E/R) ------------------------------------------
+
+ISubObjType* SculptMeshObject::GetSubObjType(int i) {
+    if (i == -1) return subLevel_ > 0 ? &TransformSubObjType() : nullptr;
+    return i == 0 ? &TransformSubObjType() : nullptr;
 }
 
-void SculptMeshObject::ApplyPositions(const std::vector<int>& maxIndices, const std::vector<Point3>& positions) {
-    const std::size_t count = std::min(maxIndices.size(), positions.size());
-    for (std::size_t i = 0; i < count; ++i) {
-        const int v = maxIndices[i];
-        if (v >= 0 && v < mm.numv) mm.v[v].p = positions[i];
+void SculptMeshObject::ActivateSubobjSel(int level, XFormModes& modes) {
+    subLevel_ = level;
+    if (level > 0) {
+        if (SculptMode::Get().Target() == this) SculptMode::Get().Stop();
+        if (moveMode_) modes = XFormModes(moveMode_, rotateMode_, nuscaleMode_, uscaleMode_, squashMode_, nullptr);
     }
-    if (bridge_ && !bridge_->ApplyMaxPositions(maxIndices, positions)) sessionStale_ = true;
-    GeometryChanged();
+    if (IObjParam* ip = editInterface_) ip->PipeSelLevelChanged();
+    NotifyDependents(FOREVER, PART_SELECT | PART_DISPLAY | PART_SUBSEL_TYPE, REFMSG_CHANGE);
 }
 
-void SculptMeshObject::GeometryChanged() {
-    if (bridge_) {
-        sculpt::SculptSession& session = bridge_->Session();
-        if (display_) {
-            if (session.displayAllDirty())
-                display_->MarkAll();
-            else
-                display_->MarkVertices(session.displayDirtyVertices());
+int SculptMeshObject::HitTest(TimeValue /*t*/, INode* /*inode*/, int /*type*/, int /*crossing*/, int /*flags*/,
+                              IPoint2* /*p*/, ViewExp* /*vpt*/, ModContext* /*mc*/) {
+    return 0;  // The Transform level has nothing to pick: the mask is the selection.
+}
+
+float SculptMeshObject::TransformWeight(int v) const {
+    if (v < 0 || v >= mm.numv || mm.v[v].GetFlag(MN_DEAD)) return 0.0f;
+    if (static_cast<std::size_t>(v) >= attributes_.mask.size()) return 1.0f;
+    return 1.0f - std::min(std::max(attributes_.mask[v], 0.0f), 1.0f);
+}
+
+void SculptMeshObject::GetSubObjectCenters(SubObjAxisCallback* cb, TimeValue t, INode* node, ModContext* /*mc*/) {
+    if (subLevel_ == 0 || !node) return;
+    Point3 sum(0.0f, 0.0f, 0.0f);
+    float weight = 0.0f;
+    for (int v = 0; v < mm.numv; ++v) {
+        const float w = TransformWeight(v);
+        if (w <= 0.0f) continue;
+        sum += mm.v[v].p * w;
+        weight += w;
+    }
+    if (weight > 0.0f) cb->Center(node->GetObjectTM(t).PointTransform(sum / weight), 0);
+}
+
+void SculptMeshObject::GetSubObjectTMs(SubObjAxisCallback* cb, TimeValue t, INode* node, ModContext* mc) {
+    if (subLevel_ == 0 || !node) return;
+    struct CenterGrabber : SubObjAxisCallback {
+        Point3 center{0, 0, 0};
+        bool found = false;
+        void Center(Point3 c, int) override {
+            center = c;
+            found = true;
         }
-        session.clearDisplayDirty();
+        void TM(Matrix3, int) override {}
+        int Type() override { return SO_CENTER_PIVOT; }
+    } grab;
+    GetSubObjectCenters(&grab, t, node, mc);
+    if (!grab.found) return;
+    Matrix3 tm = node->GetObjectTM(t);
+    tm.NoScale();
+    tm.SetTrans(grab.center);
+    cb->TM(tm, 0);
+}
+
+void SculptMeshObject::TransformStart(TimeValue /*t*/) {
+    if (xformActive_) return;
+    xformActive_ = true;
+    xformOrigin_.resize(static_cast<std::size_t>(std::max(mm.numv, 0)));
+    for (int v = 0; v < mm.numv; ++v) xformOrigin_[v] = mm.v[v].p;
+    if (editInterface_) editInterface_->LockAxisTripods(TRUE);
+}
+
+void SculptMeshObject::Transform(TimeValue t, Matrix3& partm, Matrix3& tmAxis, const Matrix3& xfrm) {
+    if (subLevel_ == 0) return;
+    if (!xformActive_) TransformStart(t);
+    if (xformOrigin_.size() != static_cast<std::size_t>(mm.numv)) return;
+    // Same convention as Editable Mesh: values are relative to the drag start.
+    Matrix3 tm = partm * Inverse(tmAxis);
+    const Matrix3 itm = Inverse(tm);
+    tm *= xfrm;
+    for (int v = 0; v < mm.numv; ++v) {
+        const float w = TransformWeight(v);
+        const Point3& old = xformOrigin_[v];
+        if (w <= 0.0f) {
+            mm.v[v].p = old;
+            continue;
+        }
+        const Point3 moved = itm.PointTransform(tm.PointTransform(old));
+        mm.v[v].p = old + (moved - old) * w;
     }
-    if (MNNormalSpec* normals = mm.GetSpecifiedNormals()) normals->ClearFlag(MNNORMAL_NORMALS_COMPUTED);
-    mm.InvalidateGeomCache();
-    NotifyDependents(FOREVER, PART_GEOM, REFMSG_CHANGE);
+    sessionStale_ = true;
+    GeometryChanged();
+}
+
+void SculptMeshObject::Move(TimeValue t, Matrix3& partm, Matrix3& tmAxis, Point3& val, BOOL /*localOrigin*/) {
+    Transform(t, partm, tmAxis, TransMatrix(val));
+}
+
+void SculptMeshObject::Rotate(TimeValue t, Matrix3& partm, Matrix3& tmAxis, Quat& val, BOOL /*localOrigin*/) {
+    Matrix3 m;
+    val.MakeMatrix(m);
+    Transform(t, partm, tmAxis, m);
+}
+
+void SculptMeshObject::Scale(TimeValue t, Matrix3& partm, Matrix3& tmAxis, Point3& val, BOOL /*localOrigin*/) {
+    Transform(t, partm, tmAxis, ScaleMatrix(val));
+}
+
+void SculptMeshObject::TransformHoldingFinish(TimeValue /*t*/) {
+    if (!xformActive_ || xformOrigin_.size() != static_cast<std::size_t>(mm.numv)) return;
+    sculpt::StrokeDelta delta;
+    for (int v = 0; v < mm.numv; ++v) {
+        if (mm.v[v].p == xformOrigin_[v]) continue;
+        delta.vertices.push_back(static_cast<std::uint32_t>(v));
+        delta.before.push_back(ToVec3(xformOrigin_[v]));
+        delta.after.push_back(ToVec3(mm.v[v].p));
+    }
+    if (!delta.empty() && theHold.Holding())
+        theHold.Put(new SculptDeltaRestore(this, std::move(delta), MSTR(GetString(IDS_UNDO_TRANSFORM))));
+    for (int v = 0; v < mm.numv; ++v) xformOrigin_[v] = mm.v[v].p;  // A following drag starts from here.
+}
+
+void SculptMeshObject::TransformFinish(TimeValue /*t*/) {
+    xformActive_ = false;
+    xformOrigin_.clear();
+    if (editInterface_) editInterface_->LockAxisTripods(FALSE);
+}
+
+void SculptMeshObject::TransformCancel(TimeValue /*t*/) {
+    if (xformActive_ && xformOrigin_.size() == static_cast<std::size_t>(mm.numv)) {
+        for (int v = 0; v < mm.numv; ++v) mm.v[v].p = xformOrigin_[v];
+        GeometryChanged();
+    }
+    xformActive_ = false;
+    xformOrigin_.clear();
+    if (editInterface_) editInterface_->LockAxisTripods(FALSE);
 }
 
 // --- Undo ---------------------------------------------------------------------------
 
-SculptStrokeRestore::SculptStrokeRestore(SculptMeshObject* object, std::vector<int> vertices,
-                                         std::vector<Point3> before, std::vector<Point3> after)
-    : object_(object), vertices_(std::move(vertices)), before_(std::move(before)), after_(std::move(after)) {}
+SculptDeltaRestore::SculptDeltaRestore(SculptMeshObject* object, sculpt::StrokeDelta delta, MSTR name)
+    : object_(object), delta_(std::move(delta)), name_(std::move(name)) {}
 
-void SculptStrokeRestore::Restore(int /*isUndo*/) {
-    if (object_) object_->ApplyPositions(vertices_, before_);
+void SculptDeltaRestore::Restore(int /*isUndo*/) {
+    if (object_) object_->ApplyDelta(delta_, true);
 }
 
-void SculptStrokeRestore::Redo() {
-    if (object_) object_->ApplyPositions(vertices_, after_);
+void SculptDeltaRestore::Redo() {
+    if (object_) object_->ApplyDelta(delta_, false);
 }
 
-int SculptStrokeRestore::Size() {
-    const std::size_t bytes =
-        sizeof(*this) + vertices_.capacity() * sizeof(int) + (before_.capacity() + after_.capacity()) * sizeof(Point3);
+int SculptDeltaRestore::Size() {
+    const std::size_t bytes = sizeof(*this) + delta_.memoryBytes();
     return bytes > 0x7fffffff ? 0x7fffffff : static_cast<int>(bytes);
 }
-
-MSTR SculptStrokeRestore::Description() { return MSTR(GetString(IDS_UNDO_STROKE)); }
