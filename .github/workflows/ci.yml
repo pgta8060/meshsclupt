@@ -1,0 +1,112 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # SculptCore + plugin logic tests with sanitizers, on two compilers.
+  core-tests:
+    name: Core tests (${{ matrix.compiler }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: |
+          if [ "${{ matrix.compiler }}" = clang ]; then export CXX=clang++; else export CXX=g++; fi
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DSCULPT_SANITIZE=address,undefined
+      - name: Build
+        run: cmake --build build
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Benchmark (informational)
+        if: matrix.compiler == 'clang'
+        run: |
+          cmake -S . -B build-release -G Ninja -DCMAKE_BUILD_TYPE=Release -DSCULPT_BUILD_TESTS=OFF
+          cmake --build build-release --target sculpt_bench
+          ./build-release/core/sculpt_bench 500 500
+
+  # Checks the plugin sources against the real 3ds Max SDK headers (clang, no MSVC).
+  sdk-check:
+    name: SDK header check (3ds Max ${{ matrix.max }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        max: ['2024', '2025', '2026']
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends clang llvm mingw-w64 msitools
+      - name: Cache SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/sculptmesh/maxsdk/${{ matrix.max }}
+          key: maxsdk-linux-${{ matrix.max }}-v1
+      - name: Check
+        run: tools/maxsdk_check/check.sh --sdk-version ${{ matrix.max }}
+
+  # The real thing: builds SculptMesh.dlo with MSVC against each SDK and
+  # uploads a ready-to-install package.
+  plugin-windows:
+    name: Plugin build (3ds Max ${{ matrix.max }})
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - max: '2024'
+            toolset: v142  # 3ds Max 2024 is built with Visual Studio 2019.
+          - max: '2025'
+            toolset: v143
+          - max: '2026'
+            toolset: v143
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache SDK
+        id: sdk-cache
+        uses: actions/cache@v4
+        with:
+          path: C:\maxsdk\${{ matrix.max }}
+          key: maxsdk-windows-${{ matrix.max }}-v1
+      - name: Download and extract SDK
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          $ver = '${{ matrix.max }}'
+          $url = "https://autodesk-adn-transfer.s3-us-west-2.amazonaws.com/ADN+Extranet/M%26E/Max/Autodesk+3ds+Max+$ver/SDK_3dsMax$ver.msi"
+          $msi = Join-Path $env:RUNNER_TEMP "sdk$ver.msi"
+          Invoke-WebRequest -Uri $url -OutFile $msi -MaximumRetryCount 4 -RetryIntervalSec 5
+          $extract = Join-Path $env:RUNNER_TEMP "sdk$ver"
+          $p = Start-Process msiexec.exe -ArgumentList '/a', "`"$msi`"", '/qn', "TARGETDIR=`"$extract`"" -Wait -PassThru -NoNewWindow
+          if ($p.ExitCode -ne 0) { throw "msiexec failed with $($p.ExitCode)" }
+          $maxh = Get-ChildItem -Path $extract -Recurse -Filter max.h | Where-Object { $_.FullName -match '\\maxsdk\\include\\max\.h$' } | Select-Object -First 1
+          if (-not $maxh) { throw 'max.h not found in the extracted SDK' }
+          $sdk = $maxh.Directory.Parent.FullName
+          New-Item -ItemType Directory -Force -Path "C:\maxsdk\$ver" | Out-Null
+          Move-Item -Path $sdk -Destination "C:\maxsdk\$ver\maxsdk"
+      - name: Configure
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -T ${{ matrix.toolset }} -DMAXSDK_DIR=C:\maxsdk\${{ matrix.max }}\maxsdk -DSCULPT_BUILD_BENCH=OFF
+      - name: Build
+        run: cmake --build build --config Release --parallel
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
+      - name: Package
+        shell: pwsh
+        run: |
+          cmake --install build --config Release --prefix package
+          Copy-Item docs/INSTALL.md package/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SculptMesh-3dsMax${{ matrix.max }}
+          path: package/
+          if-no-files-found: error

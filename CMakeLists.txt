@@ -45,6 +45,9 @@ if(SCULPT_BUILD_TESTS)
 endif()
 
 add_subdirectory(core)
+if(SCULPT_BUILD_TESTS)
+  add_subdirectory(max/tests)
+endif()
 
 if(MAXSDK_DIR)
   if(WIN32)
