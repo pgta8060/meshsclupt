@@ -702,12 +702,46 @@ void RowList::Note(std::function<std::wstring()> text, Visible visible) {
     Add(std::move(row));
 }
 
+void RowList::List(std::function<int()> count, std::function<std::wstring(int)> item, std::function<int()> selected,
+                   std::function<void(int)> select, Visible visible) {
+    Row row;
+    row.kind = Kind::List;
+    row.count = std::move(count);
+    row.item = std::move(item);
+    row.selected = std::move(selected);
+    row.select = std::move(select);
+    row.visible = std::move(visible);
+    Add(std::move(row));
+}
+
+void RowList::Text(const std::wstring& label, std::function<std::wstring()> get, std::function<void(const std::wstring&)> set,
+                   Visible visible) {
+    Row row;
+    row.kind = Kind::Text;
+    row.label = label;
+    row.text = std::move(get);
+    row.setText = std::move(set);
+    row.visible = std::move(visible);
+    Add(std::move(row));
+}
+
+int RowList::ListItemHeight() const { return Px(20); }
+
+RECT RowList::TextBox(const RECT& r) {
+    const int split = r.left + (r.right - r.left) * 30 / 100;
+    return RECT{split, r.top + Px(2), r.right - Px(4), r.bottom - Px(2)};
+}
+
 int RowList::RowHeight(const Row& row) const {
     switch (row.kind) {
         case Kind::Section: return Px(22);
         case Kind::Buttons: return Px(25);
         case Kind::Colors: return Px(28);
         case Kind::Note: return Px(18);
+        case Kind::List: {
+            const int n = row.count ? row.count() : 0;
+            return ListItemHeight() * std::max(n, 2) + Px(6);
+        }
         default: return Px(22);
     }
 }
@@ -747,6 +781,7 @@ RECT RowList::SliderTrack(const RECT& r) {
 }
 
 float RowList::ToT(const SliderSpec& s, float v) {
+    if (s.toPosition) return std::min(std::max(s.toPosition(v), 0.0f), 1.0f);
     const float hi = MaxOf(s);
     const float t = (std::min(std::max(v, s.min), hi) - s.min) / std::max(hi - s.min, 1e-6f);
     return s.quadratic ? std::sqrt(t) : t;
@@ -754,6 +789,7 @@ float RowList::ToT(const SliderSpec& s, float v) {
 
 float RowList::FromT(const SliderSpec& s, float t) {
     t = std::min(std::max(t, 0.0f), 1.0f);
+    if (s.toValue) return s.toValue(t);
     if (s.quadratic) t *= t;
     float v = s.min + t * (MaxOf(s) - s.min);
     if (s.decimals == 0) v = std::round(v);
@@ -800,15 +836,15 @@ void RowList::Paint(HDC dc, const RECT& area, int scroll) const {
             case Kind::Section: {
                 Fill(dc, r, t.header);
                 RECT arrow = {r.left + Px(4), r.top, r.left + Px(18), r.bottom};
-                Text(dc, arrow, row.expanded ? L"\x25BE" : L"\x25B8", t.text, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+                ui::Text(dc, arrow, row.expanded ? L"\x25BE" : L"\x25B8", t.text, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
                 RECT label = {r.left + Px(20), r.top, r.right - Px(4), r.bottom};
-                Text(dc, label, row.label, t.text, DT_LEFT | DT_VCENTER | DT_SINGLELINE, BoldFont());
+                ui::Text(dc, label, row.label, t.text, DT_LEFT | DT_VCENTER | DT_SINGLELINE, BoldFont());
                 break;
             }
             case Kind::Slider: {
                 const SliderSpec& s = row.slider;
                 RECT label = {r.left + Px(8), r.top, SliderTrack(r).left - Px(4), r.bottom};
-                Text(dc, label, s.label, t.text, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+                ui::Text(dc, label, s.label, t.text, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
                 const RECT track = SliderTrack(r);
                 const float value = (drag_ == p.row && s.applyOnRelease) ? pending_ : (s.get ? s.get() : 0.0f);
                 RoundBox(dc, track, Px(4), t.track, t.track);
@@ -823,7 +859,7 @@ void RowList::Paint(HDC dc, const RECT& area, int scroll) const {
                 Frame(dc, box, t.border);
                 RECT text = box;
                 text.right -= Px(3);
-                Text(dc, text, s.format ? s.format(value) : FormatValue(value, s.decimals), t.text,
+                ui::Text(dc, text, s.format ? s.format(value) : FormatValue(value, s.decimals), t.text,
                      DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
                 break;
             }
@@ -833,9 +869,9 @@ void RowList::Paint(HDC dc, const RECT& area, int scroll) const {
                 RECT b = {r.left + Px(8), (r.top + r.bottom - box) / 2, r.left + Px(8) + box, (r.top + r.bottom + box) / 2};
                 Fill(dc, b, on ? t.accent : t.background);
                 Frame(dc, b, hot ? t.text : t.border);
-                if (on) Text(dc, b, L"\x2713", t.accentText, DT_CENTER | DT_VCENTER | DT_SINGLELINE, BoldFont());
+                if (on) ui::Text(dc, b, L"\x2713", t.accentText, DT_CENTER | DT_VCENTER | DT_SINGLELINE, BoldFont());
                 RECT label = {b.right + Px(6), r.top, r.right - Px(4), r.bottom};
-                Text(dc, label, row.label, t.text, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+                ui::Text(dc, label, row.label, t.text, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
                 break;
             }
             case Kind::Buttons: {
@@ -848,7 +884,7 @@ void RowList::Paint(HDC dc, const RECT& area, int scroll) const {
                     COLORREF fill = checked ? t.accent : (hot && hotButton_ == i && enabled ? t.buttonHot : t.button);
                     if (pressed) fill = Blend(fill, t.accent, 0.5f);
                     RoundBox(dc, b, Px(4), fill, t.border);
-                    Text(dc, b, button.text ? button.text() : button.label, enabled ? (checked ? t.accentText : t.text) : t.textDim,
+                    ui::Text(dc, b, button.text ? button.text() : button.label, enabled ? (checked ? t.accentText : t.text) : t.textDim,
                          DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
                 }
                 break;
@@ -856,13 +892,13 @@ void RowList::Paint(HDC dc, const RECT& area, int scroll) const {
             case Kind::Choice: {
                 const int split = r.left + (r.right - r.left) * 42 / 100;
                 RECT label = {r.left + Px(8), r.top, split - Px(4), r.bottom};
-                Text(dc, label, row.label, t.text, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+                ui::Text(dc, label, row.label, t.text, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
                 RECT box = {split, r.top + Px(2), r.right - Px(4), r.bottom - Px(2)};
                 RoundBox(dc, box, Px(4), hot ? t.buttonHot : t.button, t.border);
                 const int index = row.getIndex ? row.getIndex() : -1;
                 RECT text = {box.left + Px(6), box.top, box.right - Px(16), box.bottom};
                 if (index >= 0 && index < static_cast<int>(row.options.size()))
-                    Text(dc, text, row.options[static_cast<std::size_t>(index)], t.text,
+                    ui::Text(dc, text, row.options[static_cast<std::size_t>(index)], t.text,
                          DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
                 RECT arrow = {box.right - Px(16), box.top, box.right - Px(2), box.bottom};
                 DrawGlyph(dc, arrow, Glyph::DropDown, t.text);
@@ -878,7 +914,7 @@ void RowList::Paint(HDC dc, const RECT& area, int scroll) const {
                     Fill(dc, c, color);
                     Frame(dc, c, t.border);
                     const float l = (0.299f * rgb[0] + 0.587f * rgb[1] + 0.114f * rgb[2]);
-                    Text(dc, c, which == 0 ? L"A" : L"B", l > 0.5f ? RGB(20, 20, 20) : RGB(235, 235, 235),
+                    ui::Text(dc, c, which == 0 ? L"A" : L"B", l > 0.5f ? RGB(20, 20, 20) : RGB(235, 235, 235),
                          DT_CENTER | DT_VCENTER | DT_SINGLELINE, BoldFont());
                 }
                 const RECT s = ColorRect(r, 1);
@@ -888,8 +924,35 @@ void RowList::Paint(HDC dc, const RECT& area, int scroll) const {
             }
             case Kind::Note: {
                 RECT text = {r.left + Px(8), r.top, r.right - Px(4), r.bottom};
-                Text(dc, text, row.text ? row.text() : std::wstring(), t.textDim,
-                     DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+                ui::Text(dc, text, row.text ? row.text() : std::wstring(), t.textDim,
+                         DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+                break;
+            }
+            case Kind::List: {
+                RECT box = {r.left + Px(6), r.top + Px(2), r.right - Px(6), r.bottom - Px(4)};
+                Fill(dc, box, t.background);
+                Frame(dc, box, t.border);
+                const int n = row.count ? row.count() : 0;
+                const int selected = row.selected ? row.selected() : -1;
+                for (int i = 0; i < n; ++i) {
+                    RECT item = {box.left + 1, box.top + 1 + i * ListItemHeight(), box.right - 1,
+                                 box.top + 1 + (i + 1) * ListItemHeight()};
+                    if (i == selected) Fill(dc, item, t.accent);
+                    RECT label = {item.left + Px(6), item.top, item.right - Px(4), item.bottom};
+                    ui::Text(dc, label, row.item ? row.item(i) : std::wstring(), i == selected ? t.accentText : t.text,
+                             DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+                }
+                break;
+            }
+            case Kind::Text: {
+                const RECT box = TextBox(r);
+                RECT label = {r.left + Px(8), r.top, box.left - Px(4), r.bottom};
+                ui::Text(dc, label, row.label, t.text, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+                Fill(dc, box, t.background);
+                Frame(dc, box, hot ? t.text : t.border);
+                RECT inner = {box.left + Px(4), box.top, box.right - Px(4), box.bottom};
+                ui::Text(dc, inner, row.text ? row.text() : std::wstring(), t.text,
+                         DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
                 break;
             }
         }
@@ -968,6 +1031,19 @@ bool RowList::MouseDown(HWND host, int x, int y, bool /*doubleClick*/, int scrol
             if (chosen > 0) row.setIndex(chosen - 1);
             return true;
         }
+        case Kind::List: {
+            const int n = row.count ? row.count() : 0;
+            const int i = (y - (r.top + Px(3))) / ListItemHeight();
+            if (i < 0 || i >= n || !row.select) return false;
+            row.select(row.selected && row.selected() == i ? -1 : i);
+            return true;
+        }
+        case Kind::Text: {
+            const RECT box = TextBox(r);
+            if (x < box.left || !row.setText) return false;
+            BeginEdit(host, index, box);
+            return true;
+        }
         case Kind::Colors: {
             for (int which = 0; which < 3; ++which) {
                 const RECT c = ColorRect(r, which);
@@ -1017,6 +1093,7 @@ bool RowList::MouseUp(int x, int y, int scroll) {
         drag_ = -1;
         const SliderSpec& s = rows_[static_cast<std::size_t>(row)].slider;
         if (s.applyOnRelease && s.set) s.set(pending_);
+        if (s.released) s.released();
         return true;
     }
     if (pressedRow_ < 0) return false;
@@ -1037,6 +1114,7 @@ bool RowList::RightClick(HWND /*host*/, int x, int y, int scroll) {
     const Row& row = rows_[static_cast<std::size_t>(index)];
     if (row.kind != Kind::Slider || !row.slider.set) return false;
     row.slider.set(row.slider.defaultValue);  // Like 3ds Max spinners: right-click resets.
+    if (row.slider.released) row.slider.released();
     return true;
 }
 
@@ -1047,12 +1125,16 @@ bool RowList::MouseLeave() {
 }
 
 void RowList::BeginEdit(HWND host, int row, const RECT& valueRect) {
-    const SliderSpec& s = rows_[static_cast<std::size_t>(row)].slider;
+    const Row& target = rows_[static_cast<std::size_t>(row)];
+    const SliderSpec& s = target.slider;
     RECT r = valueRect;
     MapWindowPoints(host, nullptr, reinterpret_cast<POINT*>(&r), 2);
     if (GetCapture() == host) ReleaseCapture();
-    const std::wstring text = FormatValue(s.get ? s.get() : 0.0f, s.decimals);
-    edit_ = CreateWindowExW(WS_EX_TOOLWINDOW, L"EDIT", text.c_str(), WS_POPUP | WS_BORDER | ES_AUTOHSCROLL | ES_RIGHT,
+    const bool isText = target.kind == Kind::Text;
+    const std::wstring text = isText ? (target.text ? target.text() : std::wstring())
+                                     : FormatValue(s.get ? s.get() : 0.0f, s.decimals);
+    edit_ = CreateWindowExW(WS_EX_TOOLWINDOW, L"EDIT", text.c_str(),
+                            WS_POPUP | WS_BORDER | ES_AUTOHSCROLL | (isText ? ES_LEFT : ES_RIGHT),
                             r.left, r.top, r.right - r.left, r.bottom - r.top, host, nullptr, hInstance, nullptr);
     if (!edit_) return;
     editHost_ = host;
@@ -1070,14 +1152,21 @@ void RowList::FinishEdit(bool commit) {
     if (!edit_) return;
     HWND edit = edit_;
     edit_ = nullptr;
-    if (commit && editRow_ >= 0 && editRow_ < static_cast<int>(rows_.size())) {
+    if (commit && editRow_ >= 0 && editRow_ < static_cast<int>(rows_.size()) &&
+        rows_[static_cast<std::size_t>(editRow_)].kind == Kind::Text) {
+        wchar_t buffer[256] = {};
+        GetWindowTextW(edit, buffer, 255);
+        if (rows_[static_cast<std::size_t>(editRow_)].setText) rows_[static_cast<std::size_t>(editRow_)].setText(buffer);
+    } else if (commit && editRow_ >= 0 && editRow_ < static_cast<int>(rows_.size())) {
         wchar_t buffer[64] = {};
         GetWindowTextW(edit, buffer, 63);
         wchar_t* end = nullptr;
         const float v = std::wcstof(buffer, &end);
         const SliderSpec& s = rows_[static_cast<std::size_t>(editRow_)].slider;
-        if (end != buffer && std::isfinite(v) && s.set)
+        if (end != buffer && std::isfinite(v) && s.set) {
             s.set(std::min(std::max(v, s.min), s.dynamicMax ? s.dynamicMax() : std::max(s.max, s.typeMax)));
+            if (s.released) s.released();
+        }
     }
     RemoveWindowSubclass(edit, EditProc, 1);
     DestroyWindow(edit);

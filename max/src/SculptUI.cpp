@@ -8,6 +8,7 @@
 #include <shellapi.h>
 
 #include "AlphaLibrary.h"
+#include "DisplaceRollout.h"
 #include "MultiresRollout.h"
 #include "SculptCommands.h"
 #include "SculptMeshObject.h"
@@ -147,6 +148,19 @@ std::uint32_t Pack(const float rgb[3]) {
 }
 
 void RunOp(SculptCommands::Op op) { SculptCommands::Run(op); }
+
+SculptMeshObject* Edited() { return SculptMeshObject::EditedObject(); }
+int ActiveLayer() { return Edited() ? Edited()->Layers().active : -1; }
+bool LayersEditable() { return Edited() && Edited()->LayersUsable(); }
+bool LayerSelected() { return LayersEditable() && ActiveLayer() >= 0; }
+const sculpt::SculptLayer* SelectedLayer() {
+    const int a = ActiveLayer();
+    return a >= 0 && a < static_cast<int>(Edited()->Layers().layers.size()) ? &Edited()->Layers().layers[static_cast<std::size_t>(a)] : nullptr;
+}
+void LayerCommand(bool (SculptMeshObject::*command)()) {
+    if (SculptMeshObject* object = Edited()) (object->*command)();
+    if (Interface* core = GetCOREInterface()) core->RedrawViews(core->GetTime());
+}
 
 void LayoutWindows();
 
@@ -545,7 +559,7 @@ protected:
         const bool favorite = S().IsAlphaFavorite(id);
         const int chosen = PopupMenu({{1, L"Use as Alpha", false, true},
                                       {2, L"Use as Stencil  (phase 10)", false, false},
-                                      {3, L"Use as Displacement  (phase 8)", false, false},
+                                      {3, L"Use as Displacement", false, true},
                                       {0, L""},
                                       {4, favorite ? L"Remove Favorite" : L"Add Favorite", false, true},
                                       {5, L"Show in Explorer", false, true}},
@@ -553,6 +567,9 @@ protected:
         if (chosen == 1) {
             S().SetAlphaId(id);
             S().SetBool(Prop::UseAlpha, true);
+        } else if (chosen == 3) {
+            S().SetDisplaceMap(id);
+            DisplaceRollout::Apply();
         } else if (chosen == 4) {
             S().ToggleAlphaFavorite(id);
         } else if (chosen == 5) {
@@ -762,6 +779,63 @@ private:
         r.Slider(PropSlider(L"Radial Count", Prop::RadialCount, 0), [] { return S().Bool(Prop::RadialMirror); });
         r.Choice(L"Radial Axis", {L"X", L"Y", L"Z"}, [] { return S().Int(Prop::RadialAxis); },
                  [](int i) { S().Set(Prop::RadialAxis, static_cast<float>(i)); }, [] { return S().Bool(Prop::RadialMirror); });
+
+        r.Section(L"Layers", true);
+        r.Note(
+            [] {
+                wchar_t text[96];
+                swprintf(text, 96, L"Layers live on level %d", Edited() ? Edited()->LayersLevel() : 0);
+                return std::wstring(text);
+            },
+            [] { return Edited() && !Edited()->LayersUsable(); });
+        r.Buttons({{L"New", [] { LayerCommand(&SculptMeshObject::NewLayer); }, {}, LayersEditable, {}},
+                   {L"Delete", [] { LayerCommand(&SculptMeshObject::DeleteLayer); }, {}, LayerSelected, {}},
+                   {L"Clear", [] { LayerCommand(&SculptMeshObject::ClearLayer); }, {}, LayerSelected, {}},
+                   {L"Clear All", [] { LayerCommand(&SculptMeshObject::ClearAllLayers); }, {},
+                    [] { return LayersEditable() && !Edited()->Layers().empty(); }, {}}});
+        r.Buttons({{L"Move Up", [] { if (Edited()) Edited()->MoveLayer(-1); }, {}, [] { return LayerSelected() && ActiveLayer() > 0; }, {}},
+                   {L"Move Down", [] { if (Edited()) Edited()->MoveLayer(1); }, {},
+                    [] { return LayerSelected() && ActiveLayer() + 1 < static_cast<int>(Edited()->Layers().layers.size()); }, {}},
+                   {L"Bake All", [] { LayerCommand(&SculptMeshObject::BakeAllLayers); }, {},
+                    [] { return LayersEditable() && !Edited()->Layers().empty(); }, {}}});
+        r.List(
+            [] { return Edited() ? static_cast<int>(Edited()->Layers().layers.size()) : 0; },
+            [](int i) {
+                const sculpt::SculptLayer& layer = Edited()->Layers().layers[static_cast<std::size_t>(i)];
+                wchar_t text[160];
+                swprintf(text, 160, L"%ls%ls   %.2fx", Widen(layer.name).c_str(), layer.enabled ? L"" : L"  (off)",
+                         static_cast<double>(layer.strength));
+                return std::wstring(text);
+            },
+            ActiveLayer, [](int i) { if (Edited()) Edited()->SelectLayer(i); });
+        r.Text(L"Name", [] { return SelectedLayer() ? Widen(SelectedLayer()->name) : std::wstring(); },
+               [](const std::wstring& name) { if (Edited()) Edited()->SetLayerName(ActiveLayer(), Narrow(name)); }, LayerSelected);
+        r.Check(L"Layer Enabled", [] { return SelectedLayer() && SelectedLayer()->enabled; },
+                [](bool on) {
+                    if (Edited()) Edited()->SetLayerEnabled(ActiveLayer(), on);
+                    if (Interface* core = GetCOREInterface()) core->RedrawViews(core->GetTime());
+                },
+                LayerSelected);
+        RowList::SliderSpec strength;
+        strength.label = L"Strength";
+        strength.get = [] { return SelectedLayer() ? SelectedLayer()->strength : 1.0f; };
+        strength.set = [](float v) {
+            if (Edited()) Edited()->SetLayerStrengthLive(ActiveLayer(), v);
+            if (Interface* core = GetCOREInterface()) core->RedrawViews(core->GetTime(), REDRAW_INTERACTIVE);
+        };
+        strength.released = [] { if (Edited()) Edited()->FinishLayerStrength(); };
+        strength.min = 0.0f;
+        strength.max = sculpt::kMaxLayerStrength;
+        strength.typeMax = sculpt::kMaxLayerStrength;
+        strength.defaultValue = 1.0f;
+        strength.toValue = sculpt::layerStrengthFromSlider;
+        strength.toPosition = sculpt::layerSliderFromStrength;
+        strength.format = [](float v) {
+            wchar_t text[32];
+            swprintf(text, 32, L"%.2fx", static_cast<double>(v));
+            return std::wstring(text);
+        };
+        r.Slider(strength, LayerSelected);
 
         r.Section(L"Surface Snapshot", false);
         r.Buttons({{L"Capture Surface", [] { SculptCommands::CaptureSurface(); }, {}, {}, {}},

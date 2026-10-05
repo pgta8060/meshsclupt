@@ -199,6 +199,13 @@ const std::vector<std::string>& AlphaLibrary::Items(const std::string& categoryI
     return listing_.emplace(categoryId, std::move(items)).first->second;
 }
 
+std::shared_ptr<const sculpt::Alpha> AlphaLibrary::LoadGrayImage(const std::string& path, int maxSize) {
+    std::vector<float> values;
+    int w = 0, h = 0;
+    if (path.empty() || !ReadGrayImage(Widen(path), maxSize, values, w, h)) return nullptr;
+    return std::make_shared<const sculpt::Alpha>(w, h, std::move(values));
+}
+
 std::shared_ptr<const sculpt::Alpha> AlphaLibrary::LoadImageFile(const std::string& path) const {
     std::vector<float> values;
     int w = 0, h = 0;

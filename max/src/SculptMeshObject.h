@@ -11,6 +11,7 @@
 #include "SculptDisplay.h"
 #include "SculptMeshPlugin.h"
 #include "SculptSessionBridge.h"
+#include "sculpt/layers.h"
 #include "sculpt/multires.h"
 
 class MoveModBoxCMode;
@@ -24,8 +25,8 @@ public:
     // Version written into every saved object. Bump when the format changes
     // and keep loading every older version.
     //   1: PolyObject data.  2: + mask, SculptGroups, hidden polygons.
-    //   3: + Multires stack, Surface Snapshot.
-    static constexpr DWORD kFileVersion = 3;
+    //   3: + Multires stack, Surface Snapshot.  4: + sculpt layers.
+    static constexpr DWORD kFileVersion = 4;
 
     SculptMeshObject();
     ~SculptMeshObject() override;
@@ -140,6 +141,31 @@ public:
     bool SurfaceMatches() const;
     MSTR SurfaceStatus() const;
 
+    // --- Sculpt layers (live on one Multires level) ---------------------------------------
+    const sculpt::LayerStack& Layers() const { return layers_; }
+    int LayersLevel() const { return layersLevel_; }
+    // Layers (if any) fit the current level and topology, so they can be edited.
+    bool LayersUsable() const;
+    bool NewLayer();
+    bool DeleteLayer();       // The selected layer.
+    bool ClearLayer();        // The selected layer's content.
+    bool ClearAllLayers();
+    bool MoveLayer(int direction);  // -1 up, +1 down.
+    bool BakeAllLayers();     // Merge every layer into the base sculpt.
+    void SelectLayer(int index);    // -1: strokes go to the base sculpt.
+    void SetLayerEnabled(int index, bool on);
+    void SetLayerStrengthLive(int index, float strength);  // While dragging (no undo yet)...
+    void FinishLayerStrength();                             // ...one undo step for the drag.
+    void SetLayerName(int index, const std::string& name);
+    // Displace rollout: (re)computes the Displace layer on the top level.
+    bool ApplyDisplace(MSTR& error, bool undoable = true);
+    bool RemoveDisplace();
+    bool HasDisplaceLayer() const { return layers_.displaceLayer() >= 0; }
+
+    // Used by undo records.
+    void SetLayersInternal(const sculpt::LayerStack& stack, bool moveVertices, int level, std::uint64_t topologyId);
+    void SetLayerValues(int layer, const std::vector<std::uint32_t>& vertices, const std::vector<sculpt::Vec3>& values);
+
     // Identifies the current topology + level; undo records only apply to it.
     std::uint64_t TopologyStamp() const { return (topologyId_ << 4) | static_cast<std::uint64_t>(level_ & 0xf); }
 
@@ -162,7 +188,12 @@ private:
     void UpdateSessionReference();
     // Runs a topology/stack change as one undo step (full state snapshots).
     // `sameMesh`: the displayed mesh is unchanged, so a matching snapshot stays valid.
-    bool RunStructural(const std::function<bool(MSTR&)>& op, int undoName, MSTR& error, bool sameMesh = false);
+    bool RunStructural(const std::function<bool(MSTR&)>& op, int undoName, MSTR& error, bool sameMesh = false,
+                       bool keepLayers = false);
+    void ChangeLayers(sculpt::LayerStack after, bool moveVertices, int undoName);
+    void RecordIntoActiveLayer(const sculpt::StrokeDelta& maxDelta);
+    void AddLayerOffsets();  // mm += layer offsets (after building the layers' level).
+    bool LayersHere() const { return !layers_.empty() && LayersUsable(); }
     static std::uint64_t NewTopologyId();
 
     Box3 SessionBounds() const;
@@ -190,6 +221,11 @@ private:
         std::uint64_t topologyId = 0;
         std::vector<Point3> positions;  // By MNMesh vertex index.
     } surface_;
+
+    sculpt::LayerStack layers_;  // Deltas by MNMesh vertex index.
+    int layersLevel_ = 0;
+    std::uint64_t layersTopologyId_ = 0;
+    std::unique_ptr<sculpt::LayerStack> strengthDragStart_;
 
     static SculptMeshObject* editedObject_;
     static IObjParam* editInterface_;
@@ -223,4 +259,7 @@ struct SculptMeshObject::State {
     std::unique_ptr<sculpt::Multires> multires;
     int level = 0;
     std::uint64_t topologyId = 0;
+    sculpt::LayerStack layers;
+    int layersLevel = 0;
+    std::uint64_t layersTopologyId = 0;
 };

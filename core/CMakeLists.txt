@@ -3,6 +3,7 @@ add_library(SculptCore STATIC
   src/brush.cpp
   src/bvh.cpp
   src/display_chunks.cpp
+  src/layers.cpp
   src/mesh.cpp
   src/multires.cpp
   src/parallel.cpp
@@ -26,6 +27,7 @@ if(SCULPT_BUILD_TESTS)
     tests/test_bvh.cpp
     tests/test_display.cpp
     tests/test_features.cpp
+    tests/test_layers.cpp
     tests/test_math.cpp
     tests/test_mesh.cpp
     tests/test_multires.cpp

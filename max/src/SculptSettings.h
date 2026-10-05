@@ -60,6 +60,16 @@ enum class Prop : int {
     MultiresUseSmoothing,   // New levels keep smoothing-group borders sharp.
     Autosmooth,             // Auto Smooth after level changes / topology tools (else faceted).
     AutosmoothAngle,        // Degrees.
+    DisplaceTriplanar,      // Displace rollout: 0 UV channel 1, 1 triplanar.
+    DisplaceStrength,       // Object units.
+    DisplaceWaterLevel,
+    DisplaceBlur,           // Pixels.
+    DisplaceContrast,
+    DisplaceTileU,
+    DisplaceTileV,
+    DisplaceOffsetU,
+    DisplaceOffsetV,
+    DisplaceLive,
     Count
 };
 
@@ -130,6 +140,9 @@ public:
     const std::vector<std::string>& AlphaFavorites() const { return alphaFavorites_; }
     bool IsAlphaFavorite(const std::string& path) const;
     void ToggleAlphaFavorite(const std::string& path);
+    // Displace rollout map (UTF-8 path, "" = none).
+    const std::string& DisplaceMap() const { return displaceMap_; }
+    void SetDisplaceMap(const std::string& path);
     // Alphas page category: "builtin", "favorites", or a library sub-folder name ("." = root).
     const std::string& AlphaCategory() const { return alphaCategory_; }
     void SetAlphaCategory(const std::string& category);
@@ -152,6 +165,7 @@ private:
     std::string alphaId_;
     std::string alphaFolder_;
     std::string alphaCategory_;
+    std::string displaceMap_;
     std::vector<std::string> alphaFavorites_;
     std::vector<Listener*> listeners_;
     bool notifying_ = false;

@@ -62,6 +62,16 @@ const PropInfo kProps[] = {
     {"multiresUseSmoothing", 0, 1, 0, true, false},
     {"autosmooth", 0, 1, 1, true, false},
     {"autosmoothAngle", 0, 180, 45, false, false},
+    {"displaceTriplanar", 0, 1, 0, true, false},
+    {"displaceStrength", -10000, 10000, 1, false, false},
+    {"displaceWaterLevel", -0.5f, 0.5f, 0, false, false},
+    {"displaceBlur", 0, 64, 0, false, false},
+    {"displaceContrast", 0, 10, 1, false, false},
+    {"displaceTileU", 0.001f, 1000, 1, false, false},
+    {"displaceTileV", 0.001f, 1000, 1, false, false},
+    {"displaceOffsetU", -1000, 1000, 0, false, false},
+    {"displaceOffsetV", -1000, 1000, 0, false, false},
+    {"displaceLive", 0, 1, 1, true, false},
 };
 static_assert(sizeof(kProps) / sizeof(kProps[0]) == static_cast<std::size_t>(kPropCount), "PropInfo table out of sync");
 
@@ -173,6 +183,7 @@ void SculptSettings::ResetToDefaults() {
     alphaId_.clear();
     alphaFolder_.clear();
     alphaCategory_ = "builtin";
+    displaceMap_.clear();
     alphaFavorites_.clear();
     Changed();
 }
@@ -258,6 +269,12 @@ void SculptSettings::SetAlphaLibraryFolder(const std::string& folder) {
     Changed();
 }
 
+void SculptSettings::SetDisplaceMap(const std::string& path) {
+    if (path == displaceMap_) return;
+    displaceMap_ = path;
+    Changed();
+}
+
 void SculptSettings::SetAlphaCategory(const std::string& category) {
     const std::string value = category.empty() ? std::string("builtin") : category;
     if (value == alphaCategory_) return;
@@ -292,6 +309,7 @@ std::string SculptSettings::ToText() const {
     os << "alpha=" << alphaId_ << '\n';
     os << "alphaFolder=" << alphaFolder_ << '\n';
     os << "alphaCategory=" << alphaCategory_ << '\n';
+    os << "displaceMap=" << displaceMap_ << '\n';
     for (const std::string& fav : alphaFavorites_) os << "alphaFavorite=" << fav << '\n';
     return os.str();
 }
@@ -344,6 +362,8 @@ void SculptSettings::FromText(const std::string& text) {
             SetAlphaLibraryFolder(value);
         } else if (key == "alphaCategory") {
             SetAlphaCategory(value);
+        } else if (key == "displaceMap") {
+            SetDisplaceMap(value);
         } else if (key == "alphaFavorite") {
             sawFavorites = true;
             if (!value.empty() && std::find(favorites.begin(), favorites.end(), value) == favorites.end())

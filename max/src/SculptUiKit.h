@@ -140,6 +140,9 @@ public:
         bool applyOnRelease = false;          // Expensive settings: set() once, on release.
         std::function<float()> dynamicMax;    // Optional: range end that changes (also limits typing).
         std::function<std::wstring(float)> format;  // Optional value text.
+        std::function<float(float)> toValue;     // Optional non-linear mapping: slider 0..1 -> value.
+        std::function<float(float)> toPosition;  // ... and back.
+        std::function<void()> released;          // Optional: called when a drag ends.
     };
 
     void Clear() { rows_.clear(); }
@@ -153,6 +156,12 @@ public:
     void Colors(std::function<void(int, float[3])> get, std::function<void(int, const float[3])> set,
                 std::function<void()> swap, Visible visible = {});
     void Note(std::function<std::wstring()> text, Visible visible = {});
+    // Selectable list (e.g. layers). Clicking the selected item calls select(-1).
+    void List(std::function<int()> count, std::function<std::wstring(int)> item, std::function<int()> selected,
+              std::function<void(int)> select, Visible visible = {});
+    // Editable single-line text (click to type).
+    void Text(const std::wstring& label, std::function<std::wstring()> get, std::function<void(const std::wstring&)> set,
+              Visible visible = {});
 
     int ContentHeight(int width) const;
     // Paints into `area` of the host window; input coordinates below are
@@ -172,7 +181,7 @@ public:
     bool Editing() const { return edit_ != nullptr; }
 
 private:
-    enum class Kind { Section, Buttons, Slider, Check, Choice, Colors, Note };
+    enum class Kind { Section, Buttons, Slider, Check, Choice, Colors, Note, List, Text };
     struct Row {
         Kind kind;
         std::wstring label;
@@ -190,6 +199,11 @@ private:
         std::function<void(int, const float[3])> setColor;
         std::function<void()> swap;
         std::function<std::wstring()> text;
+        std::function<int()> count;
+        std::function<std::wstring(int)> item;
+        std::function<int()> selected;
+        std::function<void(int)> select;
+        std::function<void(const std::wstring&)> setText;
     };
     struct Placed {
         int row;
@@ -207,6 +221,8 @@ private:
     static float MaxOf(const SliderSpec& s) { return s.dynamicMax ? s.dynamicMax() : s.max; }
     void SetSliderFromX(const Row& row, const RECT& rect, int x);
     void BeginEdit(HWND host, int row, const RECT& valueRect);
+    static RECT TextBox(const RECT& r);
+    int ListItemHeight() const;
     static int ButtonAt(const Row& row, const RECT& r, int x);
     static RECT ButtonRect(const Row& row, const RECT& r, int index);
     static RECT ColorRect(const RECT& r, int which);  // 0 = A, 1 = swap, 2 = B

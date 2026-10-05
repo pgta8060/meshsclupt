@@ -41,6 +41,9 @@ public:
     // Forget the folder listing (after the library folder changed).
     void Rescan();
 
+    // Any image file as grayscale (luminance x alpha), at most maxSize pixels across.
+    static std::shared_ptr<const sculpt::Alpha> LoadGrayImage(const std::string& path, int maxSize);
+
     static bool IsBuiltin(const std::string& id);
     static std::wstring DisplayName(const std::string& id);
     static bool IsImageFile(const std::wstring& path);

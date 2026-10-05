@@ -5,6 +5,7 @@
 #include <MNNormalSpec.h>
 #include <objmode.h>
 
+#include "DisplaceRollout.h"
 #include "MultiresRollout.h"
 #include "PolyConvert.h"
 #include "SculptActions.h"
@@ -23,6 +24,8 @@ constexpr USHORT kHiddenChunk = 0x5C22;
 constexpr USHORT kMultiresChunk = 0x5C30;
 constexpr USHORT kLevelChunk = 0x5C31;
 constexpr USHORT kSurfaceChunk = 0x5C32;
+constexpr USHORT kLayersChunk = 0x5C40;
+constexpr USHORT kLayersLevelChunk = 0x5C41;
 
 // Largest level the Subdivide button creates (memory guard).
 constexpr std::uint64_t kMaxSubdividedFaces = 24u * 1000u * 1000u;
@@ -132,6 +135,11 @@ RefTargetHandle SculptMeshObject::Clone(RemapDir& remap) {
     copy->surface_ = surface_;
     copy->surface_.topologyId = copy->topologyId_;
     if (surface_.topologyId != topologyId_) copy->surface_ = Surface();
+    if (layersTopologyId_ == topologyId_) {
+        copy->layers_ = layers_;
+        copy->layersLevel_ = layersLevel_;
+        copy->layersTopologyId_ = copy->topologyId_;
+    }
     BaseClone(this, copy, remap);
     return copy;
 }
@@ -166,6 +174,12 @@ IOResult SculptMeshObject::Save(ISave* isave) {
         for (const Point3& p : surface_.positions) data.insert(data.end(), {p.x, p.y, p.z});
         if ((res = WriteArray(isave, kSurfaceChunk, data)) != IO_OK) return res;
     }
+    if (!layers_.empty() && layersTopologyId_ == topologyId_) {
+        const std::vector<std::uint8_t> blob = sculpt::serializeLayers(layers_);
+        if ((res = WriteArray(isave, kLayersChunk, blob)) != IO_OK) return res;
+        const std::vector<std::int32_t> level(1, layersLevel_);
+        if ((res = WriteArray(isave, kLayersLevelChunk, level)) != IO_OK) return res;
+    }
     if (attributes_.Matches(mm)) {
         const auto& a = attributes_;
         if (std::any_of(a.mask.begin(), a.mask.end(), [](float m) { return m > 0.0f; }) &&
@@ -189,6 +203,8 @@ IOResult SculptMeshObject::Load(ILoad* iload) {
     std::vector<std::uint8_t> multiresBlob;
     std::vector<std::int32_t> levelData;
     std::vector<float> surfaceData;
+    std::vector<std::uint8_t> layersBlob;
+    std::vector<std::int32_t> layersLevelData;
     while ((res = iload->OpenChunk()) == IO_OK) {
         switch (iload->CurChunkID()) {
             case kVersionChunk: res = iload->Read(&version, sizeof(version), &read); break;
@@ -199,6 +215,8 @@ IOResult SculptMeshObject::Load(ILoad* iload) {
             case kMultiresChunk: res = ReadArray(iload, multiresBlob); break;
             case kLevelChunk: res = ReadArray(iload, levelData); break;
             case kSurfaceChunk: res = ReadArray(iload, surfaceData); break;
+            case kLayersChunk: res = ReadArray(iload, layersBlob); break;
+            case kLayersLevelChunk: res = ReadArray(iload, layersLevelData); break;
             default: break;  // Chunk from a newer version: skip it, keep the rest.
         }
         iload->CloseChunk();
@@ -230,6 +248,24 @@ IOResult SculptMeshObject::Load(ILoad* iload) {
             surface_.positions.emplace_back(surfaceData[i], surfaceData[i + 1], surfaceData[i + 2]);
         if (surface_.level != level_) surface_ = Surface();
     }
+    // Layers: kept when they belong to a level of this object. Deltas are stored
+    // per vertex of their level; only the current level can be checked here.
+    layers_ = sculpt::LayerStack();
+    layersLevel_ = 0;
+    layersTopologyId_ = topologyId_;
+    if (!layersBlob.empty() && layersLevelData.size() == 1) {
+        sculpt::LayerStack loadedLayers;
+        const int level = layersLevelData[0];
+        const std::uint64_t expected =
+            multires_ ? multires_->vertexCount(level) : static_cast<std::uint64_t>(std::max<int>(mm.numv, 0));
+        const bool sameLevel = level == level_;
+        const std::uint64_t vertices = sameLevel ? static_cast<std::uint64_t>(std::max<int>(mm.numv, 0)) : expected;
+        if (sculpt::deserializeLayers(layersBlob.data(), layersBlob.size(), loadedLayers) &&
+            level >= 0 && level <= MultiresTopLevel() && loadedLayers.sizesMatch(static_cast<std::size_t>(vertices))) {
+            layers_ = std::move(loadedLayers);
+            layersLevel_ = level;
+        }
+    }
     // Keep each attribute only if it fits the loaded mesh (a damaged or
     // mismatched array is dropped rather than misapplied).
     attributes_ = SculptAttributes();
@@ -253,6 +289,7 @@ void SculptMeshObject::BeginEditParams(IObjParam* ip, ULONG flags, Animatable* p
         squashMode_ = new SquashModBoxCMode(this, ip);
     }
     MultiresRollout::Open(ip, this);
+    DisplaceRollout::Open(ip, this);
     SculptActions::Activate();
     SculptUI::OnEditBegin();
 }
@@ -261,6 +298,7 @@ void SculptMeshObject::EndEditParams(IObjParam* ip, ULONG flags, Animatable* nex
     if (SculptMode::Get().Target() == this) SculptMode::Get().Stop();
     SculptUI::OnEditEnd();
     SculptActions::Deactivate();
+    DisplaceRollout::Close(ip);
     MultiresRollout::Close(ip);
     if (moveMode_) {
         ip->DeleteMode(moveMode_);
@@ -376,7 +414,9 @@ bool SculptMeshObject::RunOperation(const std::function<sculpt::StrokeDelta(Scul
 
 void SculptMeshObject::PutStrokeUndo(const sculpt::StrokeDelta& coreDelta, const MCHAR* undoName) {
     if (!bridge_ || coreDelta.empty() || !coreDelta.consistent() || !theHold.Holding()) return;
-    theHold.Put(new SculptDeltaRestore(this, bridge_->ToMax(coreDelta), MSTR(undoName)));
+    sculpt::StrokeDelta maxDelta = bridge_->ToMax(coreDelta);
+    RecordIntoActiveLayer(maxDelta);
+    theHold.Put(new SculptDeltaRestore(this, std::move(maxDelta), MSTR(undoName)));
 }
 
 void SculptMeshObject::ApplyDelta(const sculpt::StrokeDelta& d, bool useBefore) {
@@ -615,8 +655,10 @@ void SculptMeshObject::TransformHoldingFinish(TimeValue /*t*/) {
         delta.before.push_back(ToVec3(xformOrigin_[v]));
         delta.after.push_back(ToVec3(mm.v[v].p));
     }
-    if (!delta.empty() && theHold.Holding())
+    if (!delta.empty() && theHold.Holding()) {
+        RecordIntoActiveLayer(delta);
         theHold.Put(new SculptDeltaRestore(this, std::move(delta), MSTR(GetString(IDS_UNDO_TRANSFORM))));
+    }
     for (int v = 0; v < mm.numv; ++v) xformOrigin_[v] = mm.v[v].p;  // A following drag starts from here.
 }
 
@@ -704,6 +746,9 @@ std::shared_ptr<SculptMeshObject::State> SculptMeshObject::CaptureState() const 
     if (multires_) state->multires = std::make_unique<sculpt::Multires>(*multires_);
     state->level = level_;
     state->topologyId = topologyId_;
+    state->layers = layers_;
+    state->layersLevel = layersLevel_;
+    state->layersTopologyId = layersTopologyId_;
     return state;
 }
 
@@ -715,6 +760,9 @@ void SculptMeshObject::RestoreState(const State& state) {
     multires_ = state.multires ? std::make_unique<sculpt::Multires>(*state.multires) : nullptr;
     level_ = state.level;
     topologyId_ = state.topologyId;
+    layers_ = state.layers;
+    layersLevel_ = state.layersLevel;
+    layersTopologyId_ = state.layersTopologyId;
     xformActive_ = false;
     xformOrigin_.clear();
     NotifyTopologyChange();
@@ -752,6 +800,7 @@ void SculptMeshObject::ReplaceMesh(const sculpt::PolyData& poly) {
     const bool hadFast = fastDisplay_ || (SculptMode::Get().IsActive() && SculptMode::Get().Target() == this);
     ReleaseSession();
     PolyToMesh(poly, mm, attributes_);
+    if (LayersHere()) AddLayerOffsets();
     ApplyAutoSmooth();
     xformActive_ = false;
     xformOrigin_.clear();
@@ -766,6 +815,12 @@ bool SculptMeshObject::CommitLevel(MSTR& error) {
     if (!multires_) return true;
     sculpt::PolyData edited;
     if (!MeshToPoly(mm, attributes_, edited, &error)) return false;
+    if (LayersHere()) {
+        // The stack stores the base sculpt; layers stay on top of it.
+        std::size_t i = 0;
+        for (int v = 0; v < mm.numv; ++v)
+            if (!mm.v[v].GetFlag(MN_DEAD)) edited.positions[i++] -= layers_.offset(static_cast<std::size_t>(v));
+    }
     std::string coreError;
     if (!multires_->commit(level_, edited, &coreError)) {
         error = MSTR::FromUTF8(coreError.c_str());
@@ -808,10 +863,12 @@ bool SculptMeshObject::SetMultiresLevel(int level, MSTR& error) {
     return true;
 }
 
-bool SculptMeshObject::RunStructural(const std::function<bool(MSTR&)>& op, int undoName, MSTR& error, bool sameMesh) {
+bool SculptMeshObject::RunStructural(const std::function<bool(MSTR&)>& op, int undoName, MSTR& error, bool sameMesh,
+                                    bool keepLayers) {
     if (bridge_ && bridge_->Session().strokeActive()) return false;
     HCURSOR previous = SetCursor(LoadCursor(nullptr, IDC_WAIT));
     const bool surfaceMatched = SurfaceMatches();
+    const bool layersValid = !layers_.empty() && layersTopologyId_ == topologyId_;
     bool ok = CommitLevel(error);
     std::shared_ptr<State> before;
     if (ok) {
@@ -825,6 +882,10 @@ bool SculptMeshObject::RunStructural(const std::function<bool(MSTR&)>& op, int u
             surface_.topologyId = topologyId_;
             surface_.level = level_;
         }
+        if (keepLayers && layersValid)
+            layersTopologyId_ = topologyId_;  // Their level still exists unchanged.
+        else
+            layers_ = sculpt::LayerStack();
         UpdateSessionReference();
         if (!theHold.RestoreOrRedoing()) {
             theHold.Begin();
@@ -871,28 +932,31 @@ bool SculptMeshObject::SubdivideLevel(MSTR& error) {
             ReplaceMesh(poly);
             return true;
         },
-        IDS_UNDO_SUBDIVIDE, error);
+        IDS_UNDO_SUBDIVIDE, error, false, true);
 }
 
 bool SculptMeshObject::DeleteLowerLevels(MSTR& error) {
     if (!multires_ || level_ == 0) return false;
+    const bool keepLayers = layersLevel_ >= level_;
     return RunStructural(
-        [this](MSTR& e) {
+        [this, keepLayers](MSTR& e) {
             std::string coreError;
             if (!multires_->deleteLower(level_, &coreError)) {
                 e = MSTR::FromUTF8(coreError.c_str());
                 return false;
             }
+            if (keepLayers) layersLevel_ -= level_;
             level_ = 0;
             if (multires_->topLevel() == 0) multires_.reset();  // A single level: plain mesh again.
             NotifyTopologyChange();
             return true;
         },
-        IDS_UNDO_DELETE_LOWER, error, true);
+        IDS_UNDO_DELETE_LOWER, error, true, keepLayers);
 }
 
 bool SculptMeshObject::DeleteHigherLevels(MSTR& error) {
     if (!multires_ || level_ >= multires_->topLevel()) return false;
+    const bool keepLayers = layersLevel_ <= level_;
     return RunStructural(
         [this](MSTR&) {
             multires_->deleteHigher(level_);
@@ -903,7 +967,7 @@ bool SculptMeshObject::DeleteHigherLevels(MSTR& error) {
             NotifyTopologyChange();
             return true;
         },
-        IDS_UNDO_DELETE_HIGHER, error, true);
+        IDS_UNDO_DELETE_HIGHER, error, true, keepLayers);
 }
 
 bool SculptMeshObject::ReverseSubdivision(MSTR& error) {

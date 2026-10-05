@@ -13,6 +13,7 @@ set(MAXSDK_LIB_DIR "${MAXSDK_DIR}/lib/x64/Release")
 add_library(SculptMeshMax SHARED
   src/AlphaLibrary.cpp
   src/ConvertToSculpt.cpp
+  src/DisplaceRollout.cpp
   src/DllEntry.cpp
   src/MultiresRollout.cpp
   src/PolyConvert.cpp
@@ -21,6 +22,7 @@ add_library(SculptMeshMax SHARED
   src/SculptCommands.cpp
   src/SculptDisplay.cpp
   src/SculptInterface.cpp
+  src/SculptMeshLayers.cpp
   src/SculptMeshObject.cpp
   src/SculptMode.cpp
   src/SculptSessionBridge.cpp

@@ -83,6 +83,16 @@ BEGIN
     IDS_SURFACE_NONE        "No surface captured"
     IDS_SURFACE_OTHER       "Captured on another level or topology"
     IDS_SURFACE_FORMAT      "Captured: level %d, %d vertices"
+    IDS_UNDO_NEW_LAYER      "New Layer"
+    IDS_UNDO_DELETE_LAYER   "Delete Layer"
+    IDS_UNDO_CLEAR_LAYER    "Clear Layer"
+    IDS_UNDO_MOVE_LAYER     "Move Layer"
+    IDS_UNDO_BAKE_LAYERS    "Bake All Layers"
+    IDS_UNDO_LAYER_SETTINGS "Layer Settings"
+    IDS_UNDO_DISPLACE       "Displace"
+    IDS_ERR_LAYERS_LEVEL    "Sculpt Mesh: the sculpt layers live on Multires level %d. Go to that level (or bake the layers) first."
+    IDS_ERR_DISPLACE_MAP    "Sculpt Mesh: choose a readable displacement map first."
+    IDS_ROLLUP_DISPLACE     "Displace"
 END
 
 /////////////////////////////////////////////////////////////////////////////
