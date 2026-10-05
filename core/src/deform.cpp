@@ -443,7 +443,7 @@ bool appendTube(PolyData& poly, const std::vector<Vec3>& curve, const TubeSettin
     }
     std::vector<std::array<float, 2>> ring;
     if (settings.section && settings.section->size() >= 3) {
-        ring = *settings.section;
+        ring.assign(settings.section->begin(), settings.section->end());
         float area = 0.0f;
         for (std::size_t i = 0; i < ring.size(); ++i) {
             const auto& a = ring[i];
@@ -459,29 +459,35 @@ bool appendTube(PolyData& poly, const std::vector<Vec3>& curve, const TubeSettin
         }
     }
     const std::size_t n = curve.size(), sides = ring.size();
-    // Parallel-transported frames.
-    std::vector<Vec3> tangent(n), normal(n), binormal(n);
-    for (std::size_t i = 0; i < n; ++i)
-        tangent[i] = normalizedOrZero(curve[std::min(i + 1, n - 1)] - curve[i > 0 ? i - 1 : 0]);
-    normal[0] = AnyPerpendicular(tangent[0]);
-    for (std::size_t i = 1; i < n; ++i) {
-        Vec3 nn = normal[i - 1] - tangent[i] * dot(normal[i - 1], tangent[i]);
-        normal[i] = lengthSq(nn) > 1e-12f ? normalizedOrZero(nn) : AnyPerpendicular(tangent[i]);
-    }
-    for (std::size_t i = 0; i < n; ++i) binormal[i] = cross(tangent[i], normal[i]);
-    std::vector<float> along(n, 0.0f);
-    for (std::size_t i = 1; i < n; ++i) along[i] = along[i - 1] + length(curve[i] - curve[i - 1]);
-    const float total = along.back() > 0.0f ? along.back() : 1.0f;
+    float total = 0.0f;
+    for (std::size_t i = 1; i < n; ++i) total += length(curve[i] - curve[i - 1]);
+    if (!(total > 0.0f)) total = 1.0f;
 
+    // Rings along the curve with parallel-transported frames (computed as we
+    // go: indexing per-point frame arrays trips GCC's -O3 null-dereference check).
     const std::uint32_t base = static_cast<std::uint32_t>(poly.positions.size());
     const bool param = settings.profileParam && settings.profileParam->size() == n;
+    std::vector<float> along;
+    along.reserve(n);
+    Vec3 normal;
+    float walked = 0.0f;
     for (std::size_t i = 0; i < n; ++i) {
-        const float t = param ? clamp01((*settings.profileParam)[i]) : along[i] / total;
-        const float u = along[i] / total;  // Tapers follow the length.
+        const Vec3 tangent = normalizedOrZero(curve[std::min(i + 1, n - 1)] - curve[i > 0 ? i - 1 : 0]);
+        if (i == 0) {
+            normal = AnyPerpendicular(tangent);
+        } else {
+            walked += length(curve[i] - curve[i - 1]);
+            const Vec3 nn = normal - tangent * dot(normal, tangent);
+            normal = lengthSq(nn) > 1e-12f ? normalizedOrZero(nn) : AnyPerpendicular(tangent);
+        }
+        const Vec3 binormal = cross(tangent, normal);
+        const float u = walked / total;  // Tapers follow the length.
+        along.push_back(u);
+        const float t = param ? clamp01((*settings.profileParam)[i]) : u;
         float r = settings.radius * (settings.profile ? std::max(0.0f, settings.profile->evaluate(t)) : 1.0f);
         r *= settings.taperStart + (1.0f - settings.taperStart) * Smoothstep(0.0f, 0.3f, u);
         r *= 1.0f + (settings.taperEnd - 1.0f) * Smoothstep(0.7f, 1.0f, u);
-        for (const auto& s : ring) poly.positions.push_back(curve[i] + normal[i] * (s[0] * r) + binormal[i] * (s[1] * r));
+        for (const auto& s : ring) poly.positions.push_back(curve[i] + normal * (s[0] * r) + binormal * (s[1] * r));
     }
     const std::uint32_t startCenter = static_cast<std::uint32_t>(poly.positions.size());
     poly.positions.push_back(curve.front());
@@ -496,20 +502,18 @@ bool appendTube(PolyData& poly, const std::vector<Vec3>& curve, const TubeSettin
     auto vertex = [&](std::size_t i, std::size_t k) { return base + static_cast<std::uint32_t>(i * sides + k % sides); };
     auto addFace = [&](std::initializer_list<std::uint32_t> corners, const std::vector<Vec3>& uv, std::uint32_t smoothing) {
         poly.faceSizes.push_back(static_cast<std::uint32_t>(corners.size()));
-        poly.faceVerts.insert(poly.faceVerts.end(), corners.begin(), corners.end());
+        for (std::uint32_t c : corners) poly.faceVerts.push_back(c);  // (Range insert trips GCC's -O3 null-dereference check.)
         if (hasMaterial) poly.material.push_back(material);
         if (hasSmoothing) poly.smoothing.push_back(smoothing);
         if (hasGroups) poly.groups.push_back(group);
         if (hasHidden) poly.hidden.push_back(0u);
         for (CornerMap& map : poly.maps) {
-            if (map.channel == 1)
-                map.values.insert(map.values.end(), uv.begin(), uv.end());
-            else
-                map.values.insert(map.values.end(), corners.size(), map.channel == 0 ? Vec3{1, 1, 1} : Vec3());
+            for (std::size_t k = 0; k < corners.size(); ++k)
+                map.values.push_back(map.channel == 1 ? uv[k] : (map.channel == 0 ? Vec3{1, 1, 1} : Vec3()));
         }
     };
     for (std::size_t i = 0; i + 1 < n; ++i) {
-        const float v0 = along[i] / total, v1 = along[i + 1] / total;
+        const float v0 = along[i], v1 = along[i + 1];
         for (std::size_t k = 0; k < sides; ++k) {
             const float u0 = static_cast<float>(k) / static_cast<float>(sides);
             const float u1 = static_cast<float>(k + 1) / static_cast<float>(sides);

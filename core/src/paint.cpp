@@ -191,7 +191,7 @@ void PaintCanvas::markRect(int x0, int y0, int x1, int y1) {
 }
 
 void PaintCanvas::markAll() {
-    std::fill(dirty_.begin(), dirty_.end(), 1u);
+    std::fill(dirty_.begin(), dirty_.end(), std::uint8_t{1});
     anyDirty_ = !dirty_.empty();
 }
 
