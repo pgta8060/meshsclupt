@@ -14,6 +14,7 @@ add_library(SculptMeshMax SHARED
   src/ConvertToSculpt.cpp
   src/DllEntry.cpp
   src/SculptInterface.cpp
+  src/SculptDisplay.cpp
   src/SculptMeshObject.cpp
   src/SculptMode.cpp
   src/SculptPanel.cpp
@@ -48,6 +49,7 @@ target_compile_options(SculptMeshMax PRIVATE
 target_link_libraries(SculptMeshMax PRIVATE
   SculptCore
   core geom gfx mesh mnmath maxutil maxscrpt paramblk2 poly bmm
+  graphicsdriver databridge maxgraphicsobjects optimesh
   comctl32
 )
 

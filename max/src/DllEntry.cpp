@@ -8,6 +8,7 @@
 
 #include "SculptMeshPlugin.h"
 #include "SculptMode.h"
+#include "sculpt/parallel.h"
 
 HINSTANCE hInstance = nullptr;
 
@@ -60,6 +61,7 @@ __declspec(dllexport) int LibInitialize() {
 }
 
 __declspec(dllexport) int LibShutdown() {
+    sculpt::shutdownParallel();  // Join worker threads before the DLL unloads.
     if (notificationsRegistered) {
         for (int code : kSceneNotifications) UnRegisterNotification(OnSceneReset, nullptr, code);
         notificationsRegistered = false;

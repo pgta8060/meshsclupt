@@ -1,5 +1,7 @@
 #include "sculpt/mesh.h"
 
+#include "sculpt/parallel.h"
+
 #include <algorithm>
 #include <limits>
 #include <utility>
@@ -188,10 +190,14 @@ Vec3 Mesh::accumulateVertexNormal(std::uint32_t v) const {
 }
 
 void Mesh::recomputeAllNormals() {
-    const std::uint32_t T = triangleCount();
-    for (std::uint32_t t = 0; t < T; ++t) triNormals_[t] = computeTriangleNormal(t);
-    const std::uint32_t V = vertexCount();
-    for (std::uint32_t v = 0; v < V; ++v) normals_[v] = accumulateVertexNormal(v);
+    // Every element is computed independently and in a fixed order, so the
+    // parallel result is identical to a serial one.
+    parallelFor(triangleCount(), 4096, [this](std::size_t b, std::size_t e) {
+        for (std::size_t t = b; t < e; ++t) triNormals_[t] = computeTriangleNormal(static_cast<std::uint32_t>(t));
+    });
+    parallelFor(vertexCount(), 4096, [this](std::size_t b, std::size_t e) {
+        for (std::size_t v = b; v < e; ++v) normals_[v] = accumulateVertexNormal(static_cast<std::uint32_t>(v));
+    });
 }
 
 void Mesh::collectTriangles(Span<std::uint32_t> vertices, std::vector<std::uint32_t>& out) const {
@@ -202,19 +208,25 @@ void Mesh::collectTriangles(Span<std::uint32_t> vertices, std::vector<std::uint3
 }
 
 void Mesh::updateNormals(Span<std::uint32_t> movedVertices) {
+    normalUpdated_.clear();
     if (movedVertices.empty()) return;
     scratchTris_.clear();
     collectTriangles(movedVertices, scratchTris_);
-    for (std::uint32_t t : scratchTris_) triNormals_[t] = computeTriangleNormal(t);
+    parallelFor(scratchTris_.size(), 2048, [this](std::size_t b, std::size_t e) {
+        for (std::size_t i = b; i < e; ++i) triNormals_[scratchTris_[i]] = computeTriangleNormal(scratchTris_[i]);
+    });
 
     // Every vertex of an updated triangle may have a different normal now.
     vertVisit_.begin(vertexCount());
     for (std::uint32_t t : scratchTris_) {
         for (int k = 0; k < 3; ++k) {
             const std::uint32_t v = triVerts_[3 * t + k];
-            if (vertVisit_.visit(v)) normals_[v] = accumulateVertexNormal(v);
+            if (vertVisit_.visit(v)) normalUpdated_.push_back(v);
         }
     }
+    parallelFor(normalUpdated_.size(), 2048, [this](std::size_t b, std::size_t e) {
+        for (std::size_t i = b; i < e; ++i) normals_[normalUpdated_[i]] = accumulateVertexNormal(normalUpdated_[i]);
+    });
 }
 
 Aabb Mesh::bounds() const {
@@ -227,7 +239,7 @@ std::size_t Mesh::memoryBytes() const {
     return bytesOf(positions_) + bytesOf(normals_) + bytesOf(faceOffsets_) + bytesOf(faceVerts_) +
            bytesOf(triVerts_) + bytesOf(triFaces_) + bytesOf(triNormals_) + bytesOf(adjacencyOffsets_) +
            bytesOf(adjacency_) + bytesOf(borderOffsets_) + bytesOf(border_) + bytesOf(vertexTriOffsets_) +
-           bytesOf(vertexTris_) + bytesOf(scratchTris_);
+           bytesOf(vertexTris_) + bytesOf(scratchTris_) + bytesOf(normalUpdated_);
 }
 
 }  // namespace sculpt

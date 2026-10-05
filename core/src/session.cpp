@@ -21,6 +21,8 @@ void SculptSession::clear() {
     movedTris_.clear();
     dirty_.clear();
     dirtyFlag_.clear();
+    displayDirty_.clear();
+    displayAllDirty_ = false;
 }
 
 bool SculptSession::raycast(const Ray& ray, RayHit& hit, bool cullBackfaces) const {
@@ -49,9 +51,15 @@ void SculptSession::commitMoved() {
     mesh_.collectTriangles(moved_, movedTris_);
     bvh_.refit(mesh_, movedTris_);
     for (std::uint32_t v : moved_) {
-        if (!dirtyFlag_[v]) {
-            dirtyFlag_[v] = 1u;
+        if (!(dirtyFlag_[v] & 1u)) {
+            dirtyFlag_[v] |= 1u;
             dirty_.push_back(v);
+        }
+    }
+    for (std::uint32_t v : mesh_.lastUpdatedNormals()) {
+        if (!(dirtyFlag_[v] & 2u)) {
+            dirtyFlag_[v] |= 2u;
+            displayDirty_.push_back(v);
         }
     }
     moved_.clear();
@@ -106,16 +114,23 @@ bool SculptSession::setPositions(const std::vector<Vec3>& positions) {
     for (std::uint32_t v = 0; v < V; ++v) mesh_.setPosition(v, positions[v]);
     mesh_.recomputeAllNormals();
     bvh_.build(mesh_);
+    displayAllDirty_ = true;
     return true;
 }
 
 void SculptSession::clearDirty() {
-    for (std::uint32_t v : dirty_) dirtyFlag_[v] = 0u;
+    for (std::uint32_t v : dirty_) dirtyFlag_[v] &= static_cast<std::uint8_t>(~1u);
     dirty_.clear();
 }
 
+void SculptSession::clearDisplayDirty() {
+    for (std::uint32_t v : displayDirty_) dirtyFlag_[v] &= static_cast<std::uint8_t>(~2u);
+    displayDirty_.clear();
+    displayAllDirty_ = false;
+}
+
 std::size_t SculptSession::memoryBytes() const {
-    return mesh_.memoryBytes() + bvh_.memoryBytes() + dirty_.capacity() * sizeof(std::uint32_t) +
+    return mesh_.memoryBytes() + bvh_.memoryBytes() + (dirty_.capacity() + displayDirty_.capacity()) * sizeof(std::uint32_t) +
            dirtyFlag_.capacity() + moved_.capacity() * sizeof(std::uint32_t) +
            movedTris_.capacity() * sizeof(std::uint32_t);
 }

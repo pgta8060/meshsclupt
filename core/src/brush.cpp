@@ -1,5 +1,7 @@
 #include "sculpt/brush.h"
 
+#include "sculpt/parallel.h"
+
 namespace sculpt {
 namespace {
 
@@ -11,6 +13,15 @@ constexpr float kInflateRate = 0.1f;
 constexpr float kPinchRate = 0.25f;
 // Fraction of the distance to the neighbour average covered per dab.
 constexpr float kSmoothRate = 1.0f;
+// Dabs below this vertex count run on one thread (threading costs more).
+constexpr std::size_t kParallelGrain = 1024;
+
+template <class Fn>
+void forEachKept(std::size_t kept, Fn&& fn) {
+    parallelFor(kept, kParallelGrain, [&](std::size_t b, std::size_t e) {
+        for (std::size_t i = b; i < e; ++i) fn(i);
+    });
+}
 
 // Falloff-weighted average of the gathered vertex normals. Falls back to
 // facing the viewer when the region has no usable normal (e.g. a flat sliver
@@ -86,19 +97,29 @@ std::size_t applyDab(Mesh& mesh, const Bvh& bvh, const BrushSettings& settings, 
     s.verts.clear();
     bvh.gatherVertices(mesh, dab.center, dab.radius, s.verts);
 
-    // Weights; drop vertices that end up with no influence.
-    s.weights.clear();
-    std::size_t kept = 0;
+    // Weights (in parallel), then drop vertices with no influence.
     const float invRadius = 1.0f / dab.radius;
-    for (std::uint32_t v : s.verts) {
-        if (settings.backfaceCull && dot(mesh.normal(v), dab.viewDir) > 0.0f) continue;
-        const float t = length(mesh.position(v) - dab.center) * invRadius;
-        const float w = brushFalloff(t, settings.useFalloff) * strength;
-        if (!(w > 0.0f)) continue;
-        s.verts[kept++] = v;
-        s.weights.push_back(w);
+    s.weights.resize(s.verts.size());
+    parallelFor(s.verts.size(), kParallelGrain, [&](std::size_t b, std::size_t e) {
+        for (std::size_t i = b; i < e; ++i) {
+            const std::uint32_t v = s.verts[i];
+            float w = 0.0f;
+            if (!(settings.backfaceCull && dot(mesh.normal(v), dab.viewDir) > 0.0f)) {
+                const float t = length(mesh.position(v) - dab.center) * invRadius;
+                w = brushFalloff(t, settings.useFalloff) * strength;
+            }
+            s.weights[i] = w;
+        }
+    });
+    std::size_t kept = 0;
+    for (std::size_t i = 0; i < s.verts.size(); ++i) {
+        if (!(s.weights[i] > 0.0f)) continue;
+        s.verts[kept] = s.verts[i];
+        s.weights[kept] = s.weights[i];
+        ++kept;
     }
     s.verts.resize(kept);
+    s.weights.resize(kept);
     if (kept == 0) return 0;
 
     const float sign = (isSignedBrush(settings.type) && (settings.subtract != dab.invert)) ? -1.0f : 1.0f;
@@ -109,33 +130,33 @@ std::size_t applyDab(Mesh& mesh, const Bvh& bvh, const BrushSettings& settings, 
     switch (settings.type) {
         case BrushType::Sculpt: {
             const Vec3 offset = areaNormal(mesh, s, dab) * (sign * dab.radius * kSculptRate);
-            for (std::size_t i = 0; i < kept; ++i) s.targets[i] = mesh.position(s.verts[i]) + offset * s.weights[i];
+            forEachKept(kept, [&](std::size_t i) { s.targets[i] = mesh.position(s.verts[i]) + offset * s.weights[i]; });
             break;
         }
         case BrushType::Inflate: {
             const float amount = sign * dab.radius * kInflateRate;
-            for (std::size_t i = 0; i < kept; ++i) {
+            forEachKept(kept, [&](std::size_t i) {
                 const std::uint32_t v = s.verts[i];
                 s.targets[i] = mesh.position(v) + mesh.normal(v) * (amount * s.weights[i]);
-            }
+            });
             break;
         }
         case BrushType::Pinch: {
             const Vec3 n = areaNormal(mesh, s, dab);
-            for (std::size_t i = 0; i < kept; ++i) {
+            forEachKept(kept, [&](std::size_t i) {
                 const Vec3& p = mesh.position(s.verts[i]);
                 Vec3 toCenter = dab.center - p;
                 toCenter -= n * dot(toCenter, n);  // Stay in the tangent plane.
                 s.targets[i] = p + toCenter * (sign * kPinchRate * s.weights[i]);
-            }
+            });
             break;
         }
         case BrushType::Smooth: {
-            for (std::size_t i = 0; i < kept; ++i) {
+            forEachKept(kept, [&](std::size_t i) {
                 const std::uint32_t v = s.verts[i];
                 const Vec3& p = mesh.position(v);
                 s.targets[i] = p + (smoothTarget(mesh, v) - p) * clamp01(s.weights[i] * kSmoothRate);
-            }
+            });
             break;
         }
         case BrushType::Count:

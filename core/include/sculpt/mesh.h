@@ -79,6 +79,10 @@ public:
     // The result is bit-identical to recomputeAllNormals().
     void updateNormals(Span<std::uint32_t> movedVertices);
 
+    // Vertices whose normal was recomputed by the last updateNormals() call
+    // (includes the moved vertices). Hosts use it to refresh display data.
+    const std::vector<std::uint32_t>& lastUpdatedNormals() const { return normalUpdated_; }
+
     // Appends (without duplicates) every triangle touching one of `vertices`.
     void collectTriangles(Span<std::uint32_t> vertices, std::vector<std::uint32_t>& out) const;
 
@@ -110,6 +114,7 @@ private:
     mutable VisitSet triVisit_;
     mutable VisitSet vertVisit_;
     std::vector<std::uint32_t> scratchTris_;
+    std::vector<std::uint32_t> normalUpdated_;
 };
 
 }  // namespace sculpt

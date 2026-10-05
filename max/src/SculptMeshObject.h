@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "SculptMeshPlugin.h"
+#include "SculptDisplay.h"
 #include "SculptSessionBridge.h"
 
 class SculptMeshObject : public PolyObject {
@@ -42,6 +43,21 @@ public:
     void PointsWereChanged() override;
     void Deform(Deformer* defProc, int useSel = 0) override;
 
+    // --- Display (fast chunked display while sculpting) ----------------------
+    unsigned long GetObjectDisplayRequirement() const override;
+    bool PrepareDisplay(const MaxSDK::Graphics::UpdateDisplayContext& prepareDisplayContext) override;
+    bool UpdatePerNodeItems(const MaxSDK::Graphics::UpdateDisplayContext& updateDisplayContext,
+                            MaxSDK::Graphics::UpdateNodeContext& nodeContext,
+                            MaxSDK::Graphics::IRenderItemContainer& targetRenderItemContainer) override;
+    void GetLocalBoundBox(TimeValue t, INode* inode, ViewExp* vpt, Box3& box) override;
+    void GetWorldBoundBox(TimeValue t, INode* inode, ViewExp* vpt, Box3& box) override;
+    void GetDeformBBox(TimeValue t, Box3& box, Matrix3* tm = nullptr, BOOL useSel = FALSE) override;
+
+    // Switches between the fast sculpt display (clay material, partial GPU
+    // updates) and the regular PolyObject display. Needs a session to enable.
+    void SetFastDisplay(bool on);
+    bool FastDisplay() const { return fastDisplay_ && display_ && bridge_; }
+
     // --- Sculpting ------------------------------------------------------------
     // Returns the sculpt session, (re)building or re-syncing it as needed.
     // Returns nullptr and fills `error` if the mesh cannot be sculpted.
@@ -70,8 +86,12 @@ public:
     static IObjParam* EditInterface() { return editInterface_; }
 
 private:
+    Box3 SessionBounds() const;
+
     std::unique_ptr<SculptSessionBridge> bridge_;
     bool sessionStale_ = false;
+    std::unique_ptr<SculptDisplay> display_;
+    bool fastDisplay_ = false;
 
     static SculptMeshObject* editedObject_;
     static IObjParam* editInterface_;

@@ -150,7 +150,10 @@ void SculptMode::EnterMode() {
     if (object_) {
         MSTR error;
         SetCursor(LoadCursor(nullptr, IDC_WAIT));
-        if (!object_->AcquireSession(error) && ip_) ip_->ReplacePrompt(error.data());
+        if (object_->AcquireSession(error))
+            object_->SetFastDisplay(true);
+        else if (ip_)
+            ip_->ReplacePrompt(error.data());
         SetCursor(LoadCursor(nullptr, IDC_ARROW));
     }
 }
@@ -158,6 +161,7 @@ void SculptMode::EnterMode() {
 void SculptMode::ExitMode() {
     CancelStroke();
     cursor_.Hide();
+    if (object_) object_->SetFastDisplay(false);
     if (ip_) {
         if (cursorRegistered_) {
             ip_->UnRegisterViewportDisplayCallback(FALSE, &cursor_);

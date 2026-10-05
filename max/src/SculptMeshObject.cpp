@@ -162,13 +162,84 @@ SculptSessionBridge* SculptMeshObject::AcquireSession(MSTR& error) {
         if (!bridge->Build(mm, error)) return nullptr;
         bridge_ = std::move(bridge);
         sessionStale_ = false;
+        if (display_) display_->Build(bridge_->Session().mesh());  // New topology: new chunks.
     }
     return bridge_.get();
 }
 
 void SculptMeshObject::ReleaseSession() {
+    if (fastDisplay_) SetFastDisplay(false);
     bridge_.reset();
     sessionStale_ = false;
+}
+
+void SculptMeshObject::SetFastDisplay(bool on) {
+    if (on && bridge_) {
+        if (!display_) display_ = std::make_unique<SculptDisplay>();
+        display_->Build(bridge_->Session().mesh());
+        bridge_->Session().clearDisplayDirty();
+        fastDisplay_ = true;
+    } else {
+        display_.reset();
+        fastDisplay_ = false;
+        mm.InvalidateGeomCache();  // The PolyObject display rebuilds from mm.
+    }
+    NotifyDependents(FOREVER, PART_GEOM | PART_DISPLAY, REFMSG_CHANGE);
+}
+
+unsigned long SculptMeshObject::GetObjectDisplayRequirement() const {
+    if (fastDisplay_ && display_ && bridge_) return 0;  // Nitrous per-node items.
+    return PolyObject::GetObjectDisplayRequirement();
+}
+
+bool SculptMeshObject::PrepareDisplay(const MaxSDK::Graphics::UpdateDisplayContext& prepareDisplayContext) {
+    if (FastDisplay()) {
+        display_->Upload(bridge_->Session().mesh());
+        return true;
+    }
+    return PolyObject::PrepareDisplay(prepareDisplayContext);
+}
+
+bool SculptMeshObject::UpdatePerNodeItems(const MaxSDK::Graphics::UpdateDisplayContext& updateDisplayContext,
+                                          MaxSDK::Graphics::UpdateNodeContext& nodeContext,
+                                          MaxSDK::Graphics::IRenderItemContainer& targetRenderItemContainer) {
+    if (FastDisplay()) {
+        display_->AddRenderItems(nodeContext, targetRenderItemContainer);
+        return true;
+    }
+    return PolyObject::UpdatePerNodeItems(updateDisplayContext, nodeContext, targetRenderItemContainer);
+}
+
+Box3 SculptMeshObject::SessionBounds() const {
+    const sculpt::Aabb b = bridge_->Session().bvh().rootBounds();
+    Box3 box;
+    box.Init();
+    if (!b.empty()) box += Box3(ToPoint3(b.lo), ToPoint3(b.hi));
+    return box;
+}
+
+void SculptMeshObject::GetLocalBoundBox(TimeValue t, INode* inode, ViewExp* vpt, Box3& box) {
+    if (FastDisplay()) {
+        box = SessionBounds();
+        return;
+    }
+    PolyObject::GetLocalBoundBox(t, inode, vpt, box);
+}
+
+void SculptMeshObject::GetWorldBoundBox(TimeValue t, INode* inode, ViewExp* vpt, Box3& box) {
+    if (FastDisplay() && inode) {
+        box = SessionBounds() * inode->GetObjectTM(t);
+        return;
+    }
+    PolyObject::GetWorldBoundBox(t, inode, vpt, box);
+}
+
+void SculptMeshObject::GetDeformBBox(TimeValue t, Box3& box, Matrix3* tm, BOOL useSel) {
+    if (FastDisplay() && !useSel) {
+        box = tm ? SessionBounds() * (*tm) : SessionBounds();
+        return;
+    }
+    PolyObject::GetDeformBBox(t, box, tm, useSel);
 }
 
 void SculptMeshObject::CommitSessionChanges() {
@@ -188,6 +259,16 @@ void SculptMeshObject::ApplyPositions(const std::vector<int>& maxIndices, const 
 }
 
 void SculptMeshObject::GeometryChanged() {
+    if (bridge_) {
+        sculpt::SculptSession& session = bridge_->Session();
+        if (display_) {
+            if (session.displayAllDirty())
+                display_->MarkAll();
+            else
+                display_->MarkVertices(session.displayDirtyVertices());
+        }
+        session.clearDisplayDirty();
+    }
     if (MNNormalSpec* normals = mm.GetSpecifiedNormals()) normals->ClearFlag(MNNORMAL_NORMALS_COMPUTED);
     mm.InvalidateGeomCache();
     NotifyDependents(FOREVER, PART_GEOM, REFMSG_CHANGE);

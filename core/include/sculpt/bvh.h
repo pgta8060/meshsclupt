@@ -46,6 +46,8 @@ public:
     float degradation() const;
 
     std::size_t nodeCount() const { return nodes_.size(); }
+    // Bounds of everything in the tree (exact after build/refit).
+    Aabb rootBounds() const { return nodes_.empty() ? Aabb() : nodes_[0].box; }
     std::size_t memoryBytes() const;
 
     // Debug helper for tests: verifies that every node encloses its contents.

@@ -60,9 +60,17 @@ public:
     // Replaces every position (the host changed the geometry; same topology).
     bool setPositions(const std::vector<Vec3>& positions);
 
-    // Vertices changed since the last clearDirty(), without duplicates.
+    // Vertices moved since the last clearDirty(), without duplicates.
+    // The host copies these positions back into its own mesh.
     const std::vector<std::uint32_t>& dirtyVertices() const { return dirty_; }
     void clearDirty();
+
+    // Vertices whose position or normal changed since clearDisplayDirty()
+    // (a superset of dirtyVertices()); the host refreshes their display data.
+    // displayAllDirty() means "everything changed" (e.g. after setPositions).
+    const std::vector<std::uint32_t>& displayDirtyVertices() const { return displayDirty_; }
+    bool displayAllDirty() const { return displayAllDirty_; }
+    void clearDisplayDirty();
 
     std::size_t memoryBytes() const;
 
@@ -76,7 +84,9 @@ private:
     std::vector<std::uint32_t> moved_;
     std::vector<std::uint32_t> movedTris_;
     std::vector<std::uint32_t> dirty_;
-    std::vector<std::uint8_t> dirtyFlag_;
+    std::vector<std::uint8_t> dirtyFlag_;  // Bit 0: dirty_, bit 1: displayDirty_.
+    std::vector<std::uint32_t> displayDirty_;
+    bool displayAllDirty_ = false;
 };
 
 }  // namespace sculpt
